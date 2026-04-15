@@ -2,6 +2,7 @@ module HarmoniqsBenchmarks
 
 include("schema.jl")
 include("storage.jl")
+include("harness.jl")
 
 export EvalBenchmark
 export BenchmarkResult
@@ -10,5 +11,10 @@ export save_results
 export load_results
 export save_micro_results
 export load_micro_results
+
+export build_evaluator
+export evaluator_dims
+export benchmark_solve!
+export trial_to_eval_benchmark
 
 end

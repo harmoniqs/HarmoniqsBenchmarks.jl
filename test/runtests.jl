@@ -1,6 +1,11 @@
 using HarmoniqsBenchmarks
 using Test
 using Dates
+using BenchmarkTools
+using DirectTrajOpt
+using NamedTrajectories
+using SparseArrays
+using LinearAlgebra
 
 @testset "HarmoniqsBenchmarks" begin
 
@@ -174,6 +179,134 @@ using Dates
             @test r.timestamp == br.timestamp
             @test r.n_threads == br.n_threads
         end
+    end
+
+    # ------------------------------------------------------------------ #
+    # Harness tests (Tasks 4–6)
+    # ------------------------------------------------------------------ #
+
+    # Helper: build the bilinear test problem used across harness tests
+    function _make_bilinear_prob(; N=10, Δt=0.1, u_bound=0.1, ω=0.1)
+        Gx = sparse(Float64[0 0 0 1; 0 0 1 0; 0 -1 0 0; -1 0 0 0])
+        Gy = sparse(Float64[0 -1 0 0; 1 0 0 0; 0 0 0 -1; 0 0 1 0])
+        Gz = sparse(Float64[0 0 1 0; 0 0 0 -1; -1 0 0 0; 0 1 0 0])
+        G(u) = ω * Gz + u[1] * Gx + u[2] * Gy
+
+        traj = NamedTrajectory(
+            (x=2rand(4,N).-1, u=u_bound*(2rand(2,N).-1), du=randn(2,N), ddu=randn(2,N), Δt=fill(Δt,N));
+            controls=(:ddu,:Δt), timestep=:Δt,
+            bounds=(u=u_bound, Δt=(0.01,0.5)),
+            initial=(x=[1.0,0.0,0.0,0.0], u=zeros(2)), final=(u=zeros(2),),
+            goal=(x=[0.0,1.0,0.0,0.0],),
+        )
+        integrators = [
+            BilinearIntegrator(G, :x, :u, traj),
+            DerivativeIntegrator(:u, :du, traj),
+            DerivativeIntegrator(:du, :ddu, traj),
+        ]
+        J = QuadraticRegularizer(:u, traj, 1.0)
+        return DirectTrajOptProblem(traj, J, integrators)
+    end
+
+    @testset "build_evaluator" begin
+        prob = _make_bilinear_prob()
+        traj = prob.trajectory
+        expected_len = traj.dim * traj.N + traj.global_dim
+
+        (evaluator, Z_vec) = build_evaluator(prob)
+
+        # Z_vec has the right length
+        @test length(Z_vec) == expected_len
+
+        # eval_objective is callable
+        obj = DirectTrajOpt.Solvers.MOI.eval_objective(evaluator, Z_vec)
+        @test obj isa Float64
+        @test isfinite(obj)
+
+        # eval_hessian=false variant also works
+        (ev2, Z_vec2) = build_evaluator(prob; eval_hessian=false)
+        @test length(Z_vec2) == expected_len
+        @test !ev2.eval_hessian
+    end
+
+    @testset "evaluator_dims" begin
+        prob = _make_bilinear_prob()
+        traj = prob.trajectory
+
+        (evaluator, _) = build_evaluator(prob)
+        dims = evaluator_dims(evaluator)
+
+        @test dims.n_constraints == evaluator.n_constraints
+        @test dims.n_variables == traj.dim * traj.N + traj.global_dim
+        @test dims.n_jacobian_entries == length(evaluator.jacobian_structure)
+        @test dims.n_hessian_entries == length(evaluator.hessian_structure)
+
+        # Sanity: all positive
+        @test dims.n_constraints > 0
+        @test dims.n_variables > 0
+        @test dims.n_jacobian_entries > 0
+        @test dims.n_hessian_entries > 0
+    end
+
+    @testset "benchmark_solve!" begin
+        prob = _make_bilinear_prob()
+        opts = IpoptOptions(max_iter=5, print_level=0)
+
+        result = benchmark_solve!(prob, opts; benchmark_name="test_bilinear", runner="test")
+
+        # Identity fields
+        @test result.package == "DirectTrajOpt"
+        @test result.benchmark_name == "test_bilinear"
+        @test result.runner == "test"
+        @test !isempty(result.commit)
+        @test !isempty(result.package_version) || result.package_version == "unknown"
+
+        # Problem dims
+        @test result.N == prob.trajectory.N
+        @test result.state_dim == 4   # :x has dim 4
+        @test result.control_dim == 2  # :ddu (2); Δt is timestep, excluded
+        @test result.n_constraints > 0
+        @test result.n_variables > 0
+
+        # Solve metrics
+        @test result.wall_time_s > 0.0
+        @test isfinite(result.objective_value)
+        @test result.constraint_violation >= 0.0
+        @test result.solver == "Ipopt"
+        @test result.solver_status isa Symbol
+
+        # Memory
+        @test result.total_allocations_bytes >= 0
+        @test result.gc_time_ns >= 0
+
+        # Options snapshot includes max_iter
+        @test haskey(result.solver_options, :max_iter)
+        @test result.solver_options[:max_iter] == 5
+
+        # Metadata
+        @test result.julia_version == string(VERSION)
+        @test result.n_threads == Threads.nthreads()
+        @test result.timestamp isa Dates.DateTime
+    end
+
+    @testset "trial_to_eval_benchmark" begin
+        # Create a small BenchmarkTools trial
+        trial = @benchmark sum(1:100) seconds=0.5
+
+        eb = trial_to_eval_benchmark(trial)
+
+        @test eb isa EvalBenchmark
+        @test eb.times_ns == Float64.(trial.times)
+        @test eb.gctimes_ns == Float64.(trial.gctimes)
+        @test eb.memory_bytes == Int(trial.memory)
+        @test eb.allocs == Int(trial.allocs)
+        @test length(eb.times_ns) > 0
+        @test eb.median_ns > 0.0
+        @test eb.min_ns > 0.0
+        @test eb.mean_ns > 0.0
+        # Derived stats are consistent
+        @test eb.min_ns <= eb.median_ns
+        @test eb.min_ns <= eb.mean_ns
     end
 
     @testset "Storage round-trip: MicroBenchmarkResult" begin
