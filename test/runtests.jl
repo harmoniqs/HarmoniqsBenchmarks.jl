@@ -350,4 +350,88 @@ using LinearAlgebra
         end
     end
 
+    @testset "compare_results" begin
+        # Create baseline result
+        baseline = BenchmarkResult(
+            package = "DirectTrajOpt",
+            package_version = "0.8.10",
+            commit = "baseline123",
+            benchmark_name = "regression_test",
+            N = 50,
+            state_dim = 4,
+            control_dim = 2,
+            n_constraints = 30,
+            n_variables = 150,
+            wall_time_s = 1.0,
+            iterations = 25,
+            objective_value = 0.001,
+            constraint_violation = 1e-8,
+            solver_status = :Optimal,
+            solver = "Ipopt",
+            total_allocations_bytes = 1_000_000,
+            total_allocs_count = 5000,
+            gc_time_ns = 100_000,
+            gc_count = 2,
+            gc_full_count = 0,
+            solver_options = Dict{Symbol,Any}(:max_iter => 100),
+            julia_version = "1.12.0",
+            timestamp = DateTime(2026, 4, 14),
+            runner = "local",
+            n_threads = 1,
+        )
+
+        # Create current result with 20% wall time regression and 10% allocation improvement
+        current = BenchmarkResult(
+            package = "DirectTrajOpt",
+            package_version = "0.8.10",
+            commit = "current456",
+            benchmark_name = "regression_test",
+            N = 50,
+            state_dim = 4,
+            control_dim = 2,
+            n_constraints = 30,
+            n_variables = 150,
+            wall_time_s = 1.2,  # 20% increase
+            iterations = 25,
+            objective_value = 0.001,
+            constraint_violation = 1e-8,
+            solver_status = :Optimal,
+            solver = "Ipopt",
+            total_allocations_bytes = 900_000,  # 10% decrease
+            total_allocs_count = 4500,
+            gc_time_ns = 95_000,
+            gc_count = 2,
+            gc_full_count = 0,
+            solver_options = Dict{Symbol,Any}(:max_iter => 100),
+            julia_version = "1.12.0",
+            timestamp = DateTime(2026, 4, 14),
+            runner = "local",
+            n_threads = 1,
+        )
+
+        rows = compare_results([baseline], [current])
+
+        @test length(rows) == 1
+        row = rows[1]
+
+        # Check identity fields
+        @test row.benchmark_name == "regression_test"
+        @test row.solver == "Ipopt"
+        @test row.N == 50
+        @test row.state_dim == 4
+
+        # Check baseline and current values
+        @test row.baseline_wall_s ≈ 1.0
+        @test row.current_wall_s ≈ 1.2
+        @test row.baseline_alloc_bytes == 1_000_000
+        @test row.current_alloc_bytes == 900_000
+
+        # Check percent changes
+        @test row.wall_time_pct_change > 15.0  # Should be 20%
+        @test row.alloc_bytes_pct_change < 0.0  # Should be -10%
+
+        # Check regression flag
+        @test row.has_regression == true  # Wall time regression exceeds default threshold
+    end
+
 end
