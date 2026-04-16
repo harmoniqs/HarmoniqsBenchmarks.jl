@@ -278,6 +278,8 @@ using LinearAlgebra
         # Memory
         @test result.total_allocations_bytes >= 0
         @test result.gc_time_ns >= 0
+        @test result.peak_rss_delta_bytes >= 0   # clamped to non-negative
+        @test isa(result.live_heap_delta_bytes, Int)  # can be negative (GC freed state)
 
         # Options snapshot includes max_iter
         @test haskey(result.solver_options, :max_iter)

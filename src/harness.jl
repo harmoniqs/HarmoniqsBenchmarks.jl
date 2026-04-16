@@ -161,11 +161,24 @@ end
 # ============================================================================ #
 
 function _capture_solve_metrics(solve_fn::Function)
-    GC.gc()
-    gc_before = Base.gc_num()
+    # Clean up garbage so peak/heap deltas reflect this solve's work, not
+    # leftover state from earlier code in the same process.
+    GC.gc(true)
+    gc_before      = Base.gc_num()
+    rss_before     = Sys.maxrss()
+    live_before    = Base.gc_live_bytes()
+
     timed = @timed solve_fn()
-    gc_after = Base.gc_num()
-    gc_diff = Base.GC_Diff(gc_after, gc_before)
+
+    rss_after      = Sys.maxrss()
+    gc_after_solve = Base.gc_num()
+
+    # Full GC to measure heap retained by the solve (persistent state / leaks).
+    GC.gc(true)
+    live_after = Base.gc_live_bytes()
+
+    gc_diff = Base.GC_Diff(gc_after_solve, gc_before)
+
     return (
         result                  = timed.value,
         wall_time_s             = timed.time,
@@ -174,6 +187,14 @@ function _capture_solve_metrics(solve_fn::Function)
         gc_time_ns              = Int(round(timed.gctime * 1e9)),
         gc_count                = Int(gc_diff.pause),
         gc_full_count           = Int(gc_diff.full_sweep),
+        # Sys.maxrss() is monotonic over the process lifetime, so this delta
+        # is a LOWER BOUND on the peak added by this solve. First solve in a
+        # process gives the true peak; later solves give 0 unless they exceed
+        # prior peaks. See schema.jl docstring.
+        peak_rss_delta_bytes    = Int(max(rss_after - rss_before, 0)),
+        # Retained Julia heap after a full post-solve GC. Signed — negative
+        # means the solve freed more of the pre-existing heap than it kept.
+        live_heap_delta_bytes   = Int(live_after - live_before),
     )
 end
 
@@ -249,6 +270,8 @@ function benchmark_solve!(
         gc_time_ns             = metrics.gc_time_ns,
         gc_count               = metrics.gc_count,
         gc_full_count          = metrics.gc_full_count,
+        peak_rss_delta_bytes   = metrics.peak_rss_delta_bytes,
+        live_heap_delta_bytes  = metrics.live_heap_delta_bytes,
         solver_options         = solver_options,
         julia_version          = string(VERSION),
         timestamp              = Dates.now(),
@@ -349,6 +372,8 @@ function benchmark_solve!(
         gc_time_ns              = metrics.gc_time_ns,
         gc_count                = metrics.gc_count,
         gc_full_count           = metrics.gc_full_count,
+        peak_rss_delta_bytes    = metrics.peak_rss_delta_bytes,
+        live_heap_delta_bytes   = metrics.live_heap_delta_bytes,
         solver_options          = solver_options,
         julia_version           = string(VERSION),
         timestamp               = Dates.now(),

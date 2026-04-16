@@ -61,6 +61,17 @@ struct BenchmarkResult
     gc_time_ns::Int
     gc_count::Int
     gc_full_count::Int
+    # Peak memory deltas across the solve.
+    # peak_rss_delta_bytes: change in `Sys.maxrss()` before/after the solve.
+    #   Monotonic caveat: Sys.maxrss() only goes UP over process lifetime, so
+    #   this delta is a LOWER BOUND on the peak added by this solve. For the
+    #   first solve in a process it's the true peak; for later solves it's 0
+    #   if they didn't exceed previous peaks.
+    # live_heap_delta_bytes: change in `Base.gc_live_bytes()` after a full
+    #   `GC.gc(true)` on each side. Signed — negative means the solve freed
+    #   more than it kept. Captures retained/leaked heap, not transient peak.
+    peak_rss_delta_bytes::Int
+    live_heap_delta_bytes::Int
     # Options
     solver_options::Dict{Symbol,Any}
     # Metadata
@@ -91,6 +102,8 @@ function BenchmarkResult(;
     gc_time_ns::Int,
     gc_count::Int,
     gc_full_count::Int,
+    peak_rss_delta_bytes::Int = 0,
+    live_heap_delta_bytes::Int = 0,
     solver_options::Dict{Symbol,Any},
     julia_version::String,
     timestamp::DateTime,
@@ -118,6 +131,8 @@ function BenchmarkResult(;
         gc_time_ns,
         gc_count,
         gc_full_count,
+        peak_rss_delta_bytes,
+        live_heap_delta_bytes,
         solver_options,
         julia_version,
         timestamp,
