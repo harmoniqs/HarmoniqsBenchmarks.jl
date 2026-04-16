@@ -310,8 +310,23 @@ function benchmark_solve!(
     solver_status::Symbol = :Unknown,
     solver_options::Dict{Symbol,Any} = Dict{Symbol,Any}(),
     runner::String = "local",
+    post_solve::Union{Nothing,Function} = nothing,
 )
     metrics = _capture_solve_metrics(solve_fn)
+
+    # If a post_solve closure is provided, call it with the solve return value
+    # and let it override post-solve fields (iterations, objective_value,
+    # constraint_violation, solver_status). It may return a NamedTuple with
+    # any subset of those keys.
+    if post_solve !== nothing
+        override = post_solve(metrics.result)
+        if override !== nothing
+            iterations           = get(override, :iterations, iterations)
+            objective_value      = get(override, :objective_value, objective_value)
+            constraint_violation = get(override, :constraint_violation, constraint_violation)
+            solver_status        = get(override, :solver_status, solver_status)
+        end
+    end
 
     return BenchmarkResult(
         package                 = package,

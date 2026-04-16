@@ -349,6 +349,43 @@ using LinearAlgebra
         @test result.n_threads == Threads.nthreads()
     end
 
+    @testset "benchmark_solve! do-block with post_solve" begin
+        # Simulate a solver that stores state; post_solve reads it
+        solver_state = Ref(0)
+
+        result = benchmark_solve!(
+            package        = "TestPkg",
+            solver         = "PostSolveTest",
+            benchmark_name = "post_solve_test",
+            N              = 10,
+            state_dim      = 2,
+            control_dim    = 1,
+            n_constraints  = 20,
+            n_variables    = 30,
+            solver_options = Dict{Symbol,Any}(:max_iter => 42),
+            commit         = "abc1234",
+            post_solve     = function(_)
+                # post_solve runs AFTER the closure; access state written there
+                return (
+                    iterations      = solver_state[],
+                    objective_value = 1e-6,
+                    solver_status   = :Optimal,
+                )
+            end,
+        ) do
+            solver_state[] = 7  # "solver did 7 iterations"
+            return nothing
+        end
+
+        # Verify post_solve overrides took effect
+        @test result.iterations == 7
+        @test result.objective_value == 1e-6
+        @test result.solver_status == :Optimal
+
+        # Timing still captured from the closure
+        @test result.wall_time_s >= 0.0
+    end
+
     @testset "trial_to_eval_benchmark" begin
         # Create a small BenchmarkTools trial
         trial = @benchmark sum(1:100) seconds=0.5
