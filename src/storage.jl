@@ -7,6 +7,7 @@ Save a vector of `BenchmarkResult` to `dir/name_commit.jld2`.
 Returns the path of the saved file.
 """
 function save_results(dir::AbstractString, name::AbstractString, results::Vector{BenchmarkResult})::String
+    mkpath(dir)
     # Use commit from first result (all should share the same commit in a benchmark run)
     commit = isempty(results) ? "unknown" : results[1].commit
     filename = "$(name)_$(commit).jld2"
@@ -33,6 +34,7 @@ Save a `MicroBenchmarkResult` to `dir/name_commit.jld2`.
 Returns the path of the saved file.
 """
 function save_micro_results(dir::AbstractString, name::AbstractString, result::MicroBenchmarkResult)::String
+    mkpath(dir)
     filename = "$(name)_$(result.commit).jld2"
     path = joinpath(dir, filename)
     jldsave(path; result)
