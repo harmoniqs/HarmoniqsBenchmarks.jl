@@ -15,6 +15,9 @@ export load_micro_results
 
 export build_evaluator
 export evaluator_dims
+export problem_dims
+export evaluate_post_solve
+export snapshot_options
 export benchmark_solve!
 export trial_to_eval_benchmark
 

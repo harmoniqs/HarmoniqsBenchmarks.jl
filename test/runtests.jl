@@ -248,6 +248,41 @@ using LinearAlgebra
         @test dims.n_hessian_entries > 0
     end
 
+    @testset "problem_dims" begin
+        prob = _make_bilinear_prob()
+        dims = problem_dims(prob)
+
+        @test dims.N == prob.trajectory.N
+        @test dims.state_dim == 4              # :x component has dim 4
+        @test dims.control_dim == 2            # :ddu (2); Δt is timestep, excluded
+        @test dims.n_constraints > 0
+        @test dims.n_variables == prob.trajectory.dim * prob.trajectory.N + prob.trajectory.global_dim
+    end
+
+    @testset "evaluate_post_solve" begin
+        prob = _make_bilinear_prob()
+        # Solve first so trajectory has meaningful values
+        solve!(prob; options=IpoptOptions(max_iter=5, print_level=0), verbose=false)
+
+        post = evaluate_post_solve(prob)
+        @test isfinite(post.objective_value)
+        @test post.constraint_violation >= 0.0
+        @test post.solver_status isa Symbol
+        @test post.solver_status in (:Optimal, :Suboptimal)
+    end
+
+    @testset "snapshot_options" begin
+        opts = IpoptOptions(max_iter=42, tol=1e-6, print_level=0)
+        snap = snapshot_options(opts)
+
+        @test snap isa Dict{Symbol,Any}
+        @test snap[:max_iter] == 42
+        @test snap[:tol] == 1e-6
+        @test snap[:print_level] == 0
+        @test haskey(snap, :eval_hessian)  # all fields captured
+        @test length(snap) == length(fieldnames(typeof(opts)))
+    end
+
     @testset "benchmark_solve!" begin
         prob = _make_bilinear_prob()
         opts = IpoptOptions(max_iter=5, print_level=0)

@@ -44,14 +44,81 @@ function evaluator_dims(evaluator::DirectTrajOpt.Solvers.Evaluator)
 end
 
 # ============================================================================ #
-# Task 5: benchmark_solve! helpers
+# Public helpers — extract repeated boilerplate from benchmark scripts so
+# the do-block form of benchmark_solve! stays clean.
 # ============================================================================ #
 
-"""
-    _solver_name(options) -> String
+const DirectTrajOptProblem = DirectTrajOpt.Problems.DirectTrajOptProblem
+const AbstractSolverOptions = DirectTrajOpt.Solvers.AbstractSolverOptions
+const Evaluator = DirectTrajOpt.Solvers.Evaluator
 
-Infer the solver name ("Ipopt", "MadNLP", or the raw type name) from the options type.
 """
+    problem_dims(prob::DirectTrajOptProblem) -> NamedTuple
+
+Extract all benchmark-relevant dimensions from a `DirectTrajOptProblem`:
+`N`, `state_dim`, `control_dim`, `n_constraints`, `n_variables`.
+
+State dim is inferred by looking for common trajectory component names
+(`:x`, `:ψ̃`, `:Ũ⃗`, `:ρ̃`), falling back to the first component's dimension.
+Control dim is the sum of all non-timestep control component dimensions.
+"""
+function problem_dims(prob::DirectTrajOptProblem)
+    traj = prob.trajectory
+    return (
+        N              = traj.N,
+        state_dim      = _infer_state_dim(prob),
+        control_dim    = _infer_control_dim(prob),
+        n_constraints  = _count_constraints(prob),
+        n_variables    = traj.dim * traj.N + traj.global_dim,
+    )
+end
+
+"""
+    evaluate_post_solve(prob::DirectTrajOptProblem) -> NamedTuple
+
+Build a lightweight evaluator (no Hessian) and compute post-solve
+`objective_value`, `constraint_violation`, and inferred `solver_status`.
+
+Useful in do-block `benchmark_solve!` for solvers that don't expose these
+directly (e.g. Altissimo).
+"""
+function evaluate_post_solve(prob::DirectTrajOptProblem)
+    evaluator = Evaluator(prob; eval_hessian = false, verbose = false)
+    traj = prob.trajectory
+    Z_vec = vcat(collect(traj.datavec), collect(traj.global_data))
+
+    objective_value = MOI.eval_objective(evaluator, Z_vec)
+
+    g = zeros(evaluator.n_constraints)
+    MOI.eval_constraint(evaluator, g, Z_vec)
+    constraint_violation = isempty(g) ? 0.0 : maximum(abs, g)
+
+    solver_status = constraint_violation < 1e-4 ? :Optimal : :Suboptimal
+
+    return (
+        objective_value      = objective_value,
+        constraint_violation = constraint_violation,
+        solver_status        = solver_status,
+    )
+end
+
+"""
+    snapshot_options(options) -> Dict{Symbol,Any}
+
+Snapshot all fields of a solver options struct into a `Dict{Symbol,Any}`.
+Works with any struct type — `IpoptOptions`, `MadNLPOptions`,
+`AltissimoOptions`, or custom types.
+"""
+function snapshot_options(options)::Dict{Symbol,Any}
+    return Dict{Symbol,Any}(
+        name => getfield(options, name) for name in fieldnames(typeof(options))
+    )
+end
+
+# ============================================================================ #
+# Private helpers used by benchmark_solve! and the public functions above.
+# ============================================================================ #
+
 function _solver_name(options)
     tname = string(typeof(options).name.name)
     if occursin("Ipopt", tname)
@@ -63,34 +130,20 @@ function _solver_name(options)
     end
 end
 
-"""
-    _infer_state_dim(prob) -> Int
-
-Heuristically infer the state dimension from a `DirectTrajOptProblem` by looking
-for component names `:x`, `:ψ̃`, `:Ũ⃗`, `:ρ̃` in `traj.dims`.  Falls back to the
-first component dimension if none of those are found.
-"""
-function _infer_state_dim(prob::DirectTrajOpt.Problems.DirectTrajOptProblem)
+function _infer_state_dim(prob::DirectTrajOptProblem)
     dims = prob.trajectory.dims
     for name in (:x, :ψ̃, :Ũ⃗, :ρ̃)
         if haskey(dims, name)
             return dims[name]
         end
     end
-    # Fall back to the first component's dimension
     first_name = first(prob.trajectory.names)
     return dims[first_name]
 end
 
-"""
-    _infer_control_dim(prob) -> Int
-
-Infer the total control dimension by summing the dimensions of all non-timestep
-control components in `traj.control_names`.
-"""
-function _infer_control_dim(prob::DirectTrajOpt.Problems.DirectTrajOptProblem)
+function _infer_control_dim(prob::DirectTrajOptProblem)
     traj = prob.trajectory
-    timestep_name = traj.timestep  # Symbol or nothing
+    timestep_name = traj.timestep
     total = 0
     for cname in traj.control_names
         if cname != timestep_name
@@ -100,25 +153,14 @@ function _infer_control_dim(prob::DirectTrajOpt.Problems.DirectTrajOptProblem)
     return total
 end
 
-"""
-    _count_constraints(prob) -> Int
-
-Count total nonlinear constraints: dynamics × (N−1) + nonlinear constraint dims.
-"""
-function _count_constraints(prob::DirectTrajOpt.Problems.DirectTrajOptProblem)
-    traj = prob.trajectory
-    # Dynamics dimension comes from integrators
+function _count_constraints(prob::DirectTrajOptProblem)
     dynamics_dim = sum(integrator.dim for integrator in prob.integrators; init = 0)
-    n_dynamics = dynamics_dim  # each integrator already accounts for N-1 internally
-
-    # Nonlinear constraint dimensions
     n_nonlinear = sum(
         c.dim for c in prob.constraints
         if c isa DirectTrajOpt.Constraints.AbstractNonlinearConstraint;
         init = 0,
     )
-
-    return n_dynamics + n_nonlinear
+    return dynamics_dim + n_nonlinear
 end
 
 """
@@ -220,50 +262,37 @@ objective_value and constraint_violation from a post-solve evaluator pass.
 The problem trajectory is updated in-place by `solve!` as usual.
 """
 function benchmark_solve!(
-    prob::DirectTrajOpt.Problems.DirectTrajOptProblem,
-    options::DirectTrajOpt.Solvers.AbstractSolverOptions;
+    prob::DirectTrajOptProblem,
+    options::AbstractSolverOptions;
     benchmark_name::String = "unnamed",
     runner::String = "local",
     verbose::Bool = false,
     kwargs...,
 )
-    # Snapshot solver options before the solve (solve! may mutate them)
-    solver_options = Dict{Symbol,Any}(
-        name => getfield(options, name) for name in fieldnames(typeof(options))
-    )
+    opts_snapshot = snapshot_options(options)
+    dims = problem_dims(prob)
 
     metrics = _capture_solve_metrics() do
         DirectTrajOpt.solve!(prob; options = options, verbose = verbose, kwargs...)
     end
 
-    # Post-solve: extract objective value and constraint violation
-    evaluator = DirectTrajOpt.Solvers.Evaluator(prob; eval_hessian = false, verbose = false)
-    traj = prob.trajectory
-    Z_vec = vcat(collect(traj.datavec), collect(traj.global_data))
-
-    objective_value = MOI.eval_objective(evaluator, Z_vec)
-
-    g = zeros(evaluator.n_constraints)
-    MOI.eval_constraint(evaluator, g, Z_vec)
-    constraint_violation = isempty(g) ? 0.0 : maximum(abs, g)
-
-    solver_status = constraint_violation < 1e-4 ? :Optimal : :Suboptimal
+    post = evaluate_post_solve(prob)
 
     return BenchmarkResult(
         package                = "DirectTrajOpt",
         package_version        = _get_package_version("DirectTrajOpt"),
         commit                 = _get_git_commit(),
         benchmark_name         = benchmark_name,
-        N                      = traj.N,
-        state_dim              = _infer_state_dim(prob),
-        control_dim            = _infer_control_dim(prob),
-        n_constraints          = evaluator.n_constraints,
-        n_variables            = traj.dim * traj.N + traj.global_dim,
+        N                      = dims.N,
+        state_dim              = dims.state_dim,
+        control_dim            = dims.control_dim,
+        n_constraints          = dims.n_constraints,
+        n_variables            = dims.n_variables,
         wall_time_s            = metrics.wall_time_s,
         iterations             = -1,  # solve! returns nothing; sentinel
-        objective_value        = objective_value,
-        constraint_violation   = constraint_violation,
-        solver_status          = solver_status,
+        objective_value        = post.objective_value,
+        constraint_violation   = post.constraint_violation,
+        solver_status          = post.solver_status,
         solver                 = _solver_name(options),
         total_allocations_bytes = metrics.total_allocations_bytes,
         total_allocs_count     = metrics.total_allocs_count,
@@ -272,7 +301,7 @@ function benchmark_solve!(
         gc_full_count          = metrics.gc_full_count,
         peak_rss_delta_bytes   = metrics.peak_rss_delta_bytes,
         live_heap_delta_bytes  = metrics.live_heap_delta_bytes,
-        solver_options         = solver_options,
+        solver_options         = opts_snapshot,
         julia_version          = string(VERSION),
         timestamp              = Dates.now(),
         runner                 = runner,
