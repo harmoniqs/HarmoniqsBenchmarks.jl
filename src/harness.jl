@@ -154,12 +154,47 @@ function _get_git_commit()::String
 end
 
 # ============================================================================ #
+# _capture_solve_metrics: shared primitive — runs the solve closure with
+# @timed + GC.gc_num() tracking and returns a NamedTuple of timing/alloc/GC
+# fields. Both public `benchmark_solve!` methods call this so the capture path
+# is guaranteed identical.
+# ============================================================================ #
+
+function _capture_solve_metrics(solve_fn::Function)
+    GC.gc()
+    gc_before = Base.gc_num()
+    timed = @timed solve_fn()
+    gc_after = Base.gc_num()
+    gc_diff = Base.GC_Diff(gc_after, gc_before)
+    return (
+        result                  = timed.value,
+        wall_time_s             = timed.time,
+        total_allocations_bytes = Int(timed.bytes),
+        total_allocs_count      = Int(timed.gcstats.malloc + timed.gcstats.poolalloc + timed.gcstats.bigalloc),
+        gc_time_ns              = Int(round(timed.gctime * 1e9)),
+        gc_count                = Int(gc_diff.pause),
+        gc_full_count           = Int(gc_diff.full_sweep),
+    )
+end
+
+# ============================================================================ #
+# benchmark_solve! — two public methods sharing _capture_solve_metrics:
+#
+#   1. (prob::DirectTrajOptProblem, options) — DTO convenience: introspects
+#      the problem for dimensions, runs `DirectTrajOpt.solve!`, and does a
+#      post-solve evaluator pass for objective_value + constraint_violation.
+#
+#   2. (fn::Function; kwargs...) — generic do-block form: caller supplies all
+#      metadata; closure is any solve procedure (Altissimo, PulseTuningProblem,
+#      etc.). Both return a fully populated `BenchmarkResult`.
+# ============================================================================ #
 
 """
-    benchmark_solve!(prob, options; benchmark_name, runner, verbose, kwargs...) -> BenchmarkResult
+    benchmark_solve!(prob::DirectTrajOptProblem, options; benchmark_name, runner, verbose, kwargs...) -> BenchmarkResult
 
-Run `solve!` on `prob` using `options`, measure wall time and GC statistics, and
-return a fully populated `BenchmarkResult`.
+DTO-specific convenience: introspects the problem, runs
+`DirectTrajOpt.solve!`, and populates all `BenchmarkResult` fields including
+objective_value and constraint_violation from a post-solve evaluator pass.
 
 The problem trajectory is updated in-place by `solve!` as usual.
 """
@@ -176,13 +211,9 @@ function benchmark_solve!(
         name => getfield(options, name) for name in fieldnames(typeof(options))
     )
 
-    # Collect GC stats and run the solve
-    GC.gc()
-    gc_before = Base.gc_num()
-    timed = @timed DirectTrajOpt.solve!(prob; options = options, verbose = verbose, kwargs...)
-    gc_after = Base.gc_num()
-
-    gc_diff = Base.GC_Diff(gc_after, gc_before)
+    metrics = _capture_solve_metrics() do
+        DirectTrajOpt.solve!(prob; options = options, verbose = verbose, kwargs...)
+    end
 
     # Post-solve: extract objective value and constraint violation
     evaluator = DirectTrajOpt.Solvers.Evaluator(prob; eval_hessian = false, verbose = false)
@@ -195,18 +226,7 @@ function benchmark_solve!(
     MOI.eval_constraint(evaluator, g, Z_vec)
     constraint_violation = isempty(g) ? 0.0 : maximum(abs, g)
 
-    # We do not have iteration count from the solve! interface (returns nothing),
-    # so record -1 as a sentinel.
-    iterations = -1
-
-    # Infer solver status heuristically from constraint violation
     solver_status = constraint_violation < 1e-4 ? :Optimal : :Suboptimal
-
-    # Problem dimensions
-    n_constraints = evaluator.n_constraints
-    n_variables   = traj.dim * traj.N + traj.global_dim
-    state_dim     = _infer_state_dim(prob)
-    control_dim   = _infer_control_dim(prob)
 
     return BenchmarkResult(
         package                = "DirectTrajOpt",
@@ -214,26 +234,111 @@ function benchmark_solve!(
         commit                 = _get_git_commit(),
         benchmark_name         = benchmark_name,
         N                      = traj.N,
-        state_dim              = state_dim,
-        control_dim            = control_dim,
-        n_constraints          = n_constraints,
-        n_variables            = n_variables,
-        wall_time_s            = timed.time,
-        iterations             = iterations,
+        state_dim              = _infer_state_dim(prob),
+        control_dim            = _infer_control_dim(prob),
+        n_constraints          = evaluator.n_constraints,
+        n_variables            = traj.dim * traj.N + traj.global_dim,
+        wall_time_s            = metrics.wall_time_s,
+        iterations             = -1,  # solve! returns nothing; sentinel
         objective_value        = objective_value,
         constraint_violation   = constraint_violation,
         solver_status          = solver_status,
         solver                 = _solver_name(options),
-        total_allocations_bytes = Int(timed.bytes),
-        total_allocs_count     = Int(timed.gcstats.malloc + timed.gcstats.poolalloc + timed.gcstats.bigalloc),
-        gc_time_ns             = Int(round(timed.gctime * 1e9)),
-        gc_count               = Int(gc_diff.pause),
-        gc_full_count          = Int(gc_diff.full_sweep),
+        total_allocations_bytes = metrics.total_allocations_bytes,
+        total_allocs_count     = metrics.total_allocs_count,
+        gc_time_ns             = metrics.gc_time_ns,
+        gc_count               = metrics.gc_count,
+        gc_full_count          = metrics.gc_full_count,
         solver_options         = solver_options,
         julia_version          = string(VERSION),
         timestamp              = Dates.now(),
         runner                 = runner,
         n_threads              = Threads.nthreads(),
+    )
+end
+
+"""
+    benchmark_solve!(solve_fn; package, solver, benchmark_name, N, state_dim, control_dim,
+                     n_constraints, n_variables, ...) -> BenchmarkResult
+
+Generic do-block form: caller supplies all metadata, closure is any solve
+procedure. Useful for Altissimo (private solver) and PulseTuningProblem
+(outer QILC loop) where the DirectTrajOpt `benchmark_solve!` signature doesn't
+apply.
+
+```julia
+result = benchmark_solve!(
+    package="Piccolissimo", solver="Altissimo", benchmark_name="xgate_altissimo",
+    N=100, state_dim=8, control_dim=2, n_constraints=800, n_variables=1008,
+    solver_options=Dict(:fidelity => fid),
+) do
+    DirectTrajOpt.Solvers.solve!(qcp.prob, altissimo_opts)
+end
+```
+
+# Required keyword arguments
+- `package::String`, `solver::String`, `benchmark_name::String`
+- `N::Int`, `state_dim::Int`, `control_dim::Int`,
+  `n_constraints::Int`, `n_variables::Int`
+
+# Optional keyword arguments
+- `package_version::String` — looked up from `Pkg.dependencies()` if omitted
+- `commit::String` — derived from `git rev-parse --short HEAD` if omitted
+- `iterations::Int = -1`
+- `objective_value::Float64 = NaN`
+- `constraint_violation::Float64 = NaN`
+- `solver_status::Symbol = :Unknown`
+- `solver_options::Dict{Symbol,Any} = Dict{Symbol,Any}()` — merges in any
+  solver config *and* run-time metrics (fidelity, J_before, etc.)
+- `runner::String = "local"`
+"""
+function benchmark_solve!(
+    solve_fn::Function;
+    package::String,
+    solver::String,
+    benchmark_name::String,
+    N::Int,
+    state_dim::Int,
+    control_dim::Int,
+    n_constraints::Int,
+    n_variables::Int,
+    package_version::String = _get_package_version(package),
+    commit::String = _get_git_commit(),
+    iterations::Int = -1,
+    objective_value::Float64 = NaN,
+    constraint_violation::Float64 = NaN,
+    solver_status::Symbol = :Unknown,
+    solver_options::Dict{Symbol,Any} = Dict{Symbol,Any}(),
+    runner::String = "local",
+)
+    metrics = _capture_solve_metrics(solve_fn)
+
+    return BenchmarkResult(
+        package                 = package,
+        package_version         = package_version,
+        commit                  = commit,
+        benchmark_name          = benchmark_name,
+        N                       = N,
+        state_dim               = state_dim,
+        control_dim             = control_dim,
+        n_constraints           = n_constraints,
+        n_variables             = n_variables,
+        wall_time_s             = metrics.wall_time_s,
+        iterations              = iterations,
+        objective_value         = objective_value,
+        constraint_violation    = constraint_violation,
+        solver_status           = solver_status,
+        solver                  = solver,
+        total_allocations_bytes = metrics.total_allocations_bytes,
+        total_allocs_count      = metrics.total_allocs_count,
+        gc_time_ns              = metrics.gc_time_ns,
+        gc_count                = metrics.gc_count,
+        gc_full_count           = metrics.gc_full_count,
+        solver_options          = solver_options,
+        julia_version           = string(VERSION),
+        timestamp               = Dates.now(),
+        runner                  = runner,
+        n_threads               = Threads.nthreads(),
     )
 end
 

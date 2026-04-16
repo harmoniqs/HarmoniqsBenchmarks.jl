@@ -289,6 +289,66 @@ using LinearAlgebra
         @test result.timestamp isa Dates.DateTime
     end
 
+    @testset "benchmark_solve! do-block (generic)" begin
+        # Run a fake "solve" that just allocates and sleeps
+        result = benchmark_solve!(
+            package         = "TestPkg",
+            package_version = "0.0.0",
+            commit          = "abc1234",
+            solver          = "FakeSolver",
+            benchmark_name  = "fake_solve",
+            N               = 42,
+            state_dim       = 7,
+            control_dim     = 3,
+            n_constraints   = 100,
+            n_variables     = 200,
+            iterations      = 5,
+            objective_value = 0.001,
+            constraint_violation = 1e-8,
+            solver_status   = :Optimal,
+            solver_options  = Dict{Symbol,Any}(:max_iter => 5, :fidelity => 0.999),
+            runner          = "test",
+        ) do
+            # Simulate a solve that allocates
+            v = zeros(10_000)
+            for _ in 1:100
+                v .+= rand(10_000)
+            end
+            return nothing
+        end
+
+        # Identity
+        @test result.package == "TestPkg"
+        @test result.solver == "FakeSolver"
+        @test result.benchmark_name == "fake_solve"
+        @test result.commit == "abc1234"
+
+        # All caller-provided fields round-tripped
+        @test result.N == 42
+        @test result.state_dim == 7
+        @test result.control_dim == 3
+        @test result.n_constraints == 100
+        @test result.n_variables == 200
+        @test result.iterations == 5
+        @test result.objective_value == 0.001
+        @test result.constraint_violation == 1e-8
+        @test result.solver_status == :Optimal
+
+        # Timing/alloc captured from the closure
+        @test result.wall_time_s > 0.0
+        @test result.total_allocations_bytes > 0   # the closure allocated
+        @test result.total_allocs_count > 0
+
+        # Run-time metadata passed through solver_options
+        @test result.solver_options[:fidelity] == 0.999
+        @test result.solver_options[:max_iter] == 5
+
+        # Julia + runner metadata populated
+        @test result.julia_version == string(VERSION)
+        @test result.runner == "test"
+        @test result.n_threads == Threads.nthreads()
+    end
+
     @testset "trial_to_eval_benchmark" begin
         # Create a small BenchmarkTools trial
         trial = @benchmark sum(1:100) seconds=0.5
