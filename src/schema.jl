@@ -72,6 +72,13 @@ struct BenchmarkResult
     #   more than it kept. Captures retained/leaked heap, not transient peak.
     peak_rss_delta_bytes::Int
     live_heap_delta_bytes::Int
+    # OOM headroom: Sys.total_memory() - Sys.maxrss() at end of solve.
+    # Positive means the process had that many bytes of host RAM to spare when
+    # the solve completed. Zero or negative indicates the solve ran up against
+    # (or got killed by) the host's memory limit. Use in conjunction with
+    # peak_rss_delta_bytes when triaging GPU-bound benchmarks that exhibit
+    # unexpected host-side pressure.
+    oom_margin_bytes::Int
     # Options
     solver_options::Dict{Symbol,Any}
     # Metadata
@@ -104,6 +111,7 @@ function BenchmarkResult(;
     gc_full_count::Int,
     peak_rss_delta_bytes::Int = 0,
     live_heap_delta_bytes::Int = 0,
+    oom_margin_bytes::Int = 0,
     solver_options::Dict{Symbol,Any},
     julia_version::String,
     timestamp::DateTime,
@@ -133,6 +141,7 @@ function BenchmarkResult(;
         gc_full_count,
         peak_rss_delta_bytes,
         live_heap_delta_bytes,
+        oom_margin_bytes,
         solver_options,
         julia_version,
         timestamp,
