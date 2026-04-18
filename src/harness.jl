@@ -3,6 +3,7 @@ import BenchmarkTools
 import Dates
 import DirectTrajOpt
 import MathOptInterface
+import Profile
 const MOI = MathOptInterface
 
 # ============================================================================ #
@@ -519,4 +520,99 @@ function per_op_benchmark(
     end
 
     return results
+end
+
+# ============================================================================ #
+# benchmark_memory! — do-block sibling of benchmark_solve! that runs the
+# closure under `Profile.Allocs.@profile` and returns an `AllocProfileResult`
+# for line-level triage of allocation hotspots. Output is saved to its own
+# JLD2 via `save_alloc_profile` so alloc artifacts stay separate from the
+# main `BenchmarkResult` vector.
+# ============================================================================ #
+
+"""
+    benchmark_memory!(solve_fn; package, solver, benchmark_name, N, state_dim,
+                      control_dim, sample_rate=1.0, warmup=true, ...) -> AllocProfileResult
+
+Run `solve_fn` under `Profile.Allocs.@profile` and return an
+`AllocProfileResult` with the flattened sample list, totals, and identity
+matching a sibling `BenchmarkResult` run of the same `(benchmark_name, commit)`.
+
+A warmup pass is run first (off the profiler) to burn off JIT/compile-time
+allocations so the recorded samples reflect steady-state solve behavior. Pass
+`warmup=false` to skip.
+
+```julia
+profile = benchmark_memory!(
+    package = "Piccolissimo",
+    solver  = "Altissimo",
+    benchmark_name = "xgate_altissimo_N100",
+    N = 100, state_dim = 8, control_dim = 2,
+    sample_rate = 1.0,
+) do
+    DirectTrajOpt.Solvers.solve!(qcp.prob, altissimo_opts)
+end
+save_alloc_profile("benchmark/results/allocs", profile.benchmark_name, profile)
+```
+
+# Required keyword arguments
+- `package::String`, `solver::String`, `benchmark_name::String`
+- `N::Int`, `state_dim::Int`, `control_dim::Int`
+
+# Optional keyword arguments
+- `sample_rate::Float64 = 1.0` — fraction of allocations sampled. Drop to
+  `0.01`–`0.1` for long solves where 1.0 would itself OOM.
+- `warmup::Bool = true` — run one unprofiled pass before the measured pass.
+- `commit::String = _get_git_commit()`
+- `runner::String = "local"`
+"""
+function benchmark_memory!(
+    solve_fn::Function;
+    package::String,
+    solver::String,
+    benchmark_name::String,
+    N::Int,
+    state_dim::Int,
+    control_dim::Int,
+    sample_rate::Float64 = 1.0,
+    warmup::Bool = true,
+    commit::String = _get_git_commit(),
+    runner::String = "local",
+)
+    if warmup
+        solve_fn()
+    end
+
+    Profile.Allocs.clear()
+    Profile.Allocs.@profile sample_rate = sample_rate solve_fn()
+    fetched = Profile.Allocs.fetch()
+
+    samples = Vector{AllocSample}(undef, length(fetched.allocs))
+    @inbounds for (i, a) in enumerate(fetched.allocs)
+        samples[i] = AllocSample(
+            Int(a.size),
+            string(a.type),
+            String[string(f) for f in a.stacktrace],
+        )
+    end
+
+    total_bytes = isempty(samples) ? 0 : sum(s.size_bytes for s in samples)
+    total_count = length(samples)
+
+    return AllocProfileResult(
+        package,
+        solver,
+        benchmark_name,
+        commit,
+        N,
+        state_dim,
+        control_dim,
+        sample_rate,
+        samples,
+        total_bytes,
+        total_count,
+        string(VERSION),
+        Dates.now(),
+        runner,
+    )
 end
