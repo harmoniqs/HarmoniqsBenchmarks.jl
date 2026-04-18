@@ -8,10 +8,14 @@ include("report.jl")
 export EvalBenchmark
 export BenchmarkResult
 export MicroBenchmarkResult
+export AllocSample
+export AllocProfileResult
 export save_results
 export load_results
 export save_micro_results
 export load_micro_results
+export save_alloc_profile
+export load_alloc_profile
 
 export build_evaluator
 export evaluator_dims
@@ -19,6 +23,7 @@ export problem_dims
 export evaluate_post_solve
 export snapshot_options
 export benchmark_solve!
+export benchmark_memory!
 export trial_to_eval_benchmark
 export per_op_benchmark
 

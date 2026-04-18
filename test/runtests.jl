@@ -606,4 +606,53 @@ using LinearAlgebra
         @test row.has_regression == true  # Wall time regression exceeds default threshold
     end
 
+    @testset "benchmark_memory! + save/load roundtrip" begin
+        # Closure with a deterministic allocation so Profile.Allocs captures
+        # at least one sample regardless of sampler noise.
+        work() = sum(collect(1:1_000))
+
+        profile = benchmark_memory!(
+            work;
+            package = "test",
+            solver = "test",
+            benchmark_name = "alloc_smoke",
+            N = 1,
+            state_dim = 1,
+            control_dim = 1,
+            sample_rate = 1.0,
+            warmup = true,
+        )
+
+        @test profile isa AllocProfileResult
+        @test profile.package == "test"
+        @test profile.solver == "test"
+        @test profile.benchmark_name == "alloc_smoke"
+        @test profile.sample_rate == 1.0
+        @test profile.total_count == length(profile.samples)
+        @test profile.total_bytes ==
+              (isempty(profile.samples) ? 0 : sum(s.size_bytes for s in profile.samples))
+        @test profile.julia_version == string(VERSION)
+
+        if !isempty(profile.samples)
+            s = profile.samples[1]
+            @test s isa AllocSample
+            @test s.size_bytes > 0
+            @test isa(s.type_name, String)
+            @test isa(s.stacktrace, Vector{String})
+        end
+
+        dir = mktempdir()
+        path = save_alloc_profile(dir, profile.benchmark_name, profile)
+        @test isfile(path)
+        @test endswith(path, "_allocs.jld2")
+        @test occursin(profile.commit, path)
+
+        reloaded = load_alloc_profile(path)
+        @test reloaded isa AllocProfileResult
+        @test reloaded.commit == profile.commit
+        @test reloaded.total_count == profile.total_count
+        @test reloaded.total_bytes == profile.total_bytes
+        @test reloaded.benchmark_name == profile.benchmark_name
+    end
+
 end

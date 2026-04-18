@@ -51,3 +51,29 @@ function load_micro_results(path::AbstractString)::MicroBenchmarkResult
         f["result"]
     end
 end
+
+"""
+    save_alloc_profile(dir, name, profile::AllocProfileResult) -> String
+
+Save an `AllocProfileResult` to `dir/name_commit_allocs.jld2` (a file distinct
+from `save_results`/`save_micro_results` so allocation artifacts do not bloat
+the main benchmark JLD2). Returns the path of the saved file.
+"""
+function save_alloc_profile(dir::AbstractString, name::AbstractString, profile::AllocProfileResult)::String
+    mkpath(dir)
+    filename = "$(name)_$(profile.commit)_allocs.jld2"
+    path = joinpath(dir, filename)
+    jldsave(path; profile)
+    return path
+end
+
+"""
+    load_alloc_profile(path) -> AllocProfileResult
+
+Load an `AllocProfileResult` from a JLD2 file.
+"""
+function load_alloc_profile(path::AbstractString)::AllocProfileResult
+    return jldopen(path, "r") do f
+        f["profile"]
+    end
+end
