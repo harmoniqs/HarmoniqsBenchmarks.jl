@@ -2,7 +2,7 @@
 
 julia_version = "1.12.5"
 manifest_format = "2.0"
-project_hash = "45dc84498c004997728621bcbf6986f773abfb3b"
+project_hash = "9d8fcf01b8a9e43cea02b95cc5bbcb04ab6534e2"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -581,7 +581,7 @@ uuid = "46192b85-c4d5-4398-a991-12ede77f4527"
 version = "0.2.0"
 
 [[deps.HarmoniqsBenchmarks]]
-deps = ["BenchmarkTools", "Dates", "DirectTrajOpt", "JLD2", "MathOptInterface", "NamedTrajectories", "Pkg", "Statistics"]
+deps = ["BenchmarkTools", "Dates", "DirectTrajOpt", "JLD2", "MathOptInterface", "NamedTrajectories", "Pkg", "Profile", "Statistics"]
 path = "."
 uuid = "f45d0b76-2d23-4568-9599-481e0da131db"
 version = "0.1.0"

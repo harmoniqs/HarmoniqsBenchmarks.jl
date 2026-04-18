@@ -31,4 +31,4 @@ A separate tool/script (in a central `harmoniqs-benchmarks` repo) that:
 - Maintains a historical archive by package version
 
 ### Allocation profiling integration
-Integrate Profile.Allocs / AllocCheck.jl / --track-allocation into the harness, activated via a kwarg like `benchmark_solve!(prob, opts; profile_allocs=true)`. This writes PProf-loadable profiles alongside the BenchmarkResult artifact.
+Profile.Allocs is wired up via `benchmark_memory!` (sibling do-block to `benchmark_solve!`) returning an `AllocProfileResult` saved via `save_alloc_profile` to a distinct `*_allocs.jld2`. Still open: AllocCheck.jl regression guards once hotspots are fixed, and an optional PProf .pb.gz sidecar export.
