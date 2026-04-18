@@ -221,6 +221,12 @@ function _capture_solve_metrics(solve_fn::Function)
 
     gc_diff = Base.GC_Diff(gc_after_solve, gc_before)
 
+    # OOM headroom at end of solve: how many bytes of host RAM remained
+    # between RSS and total system memory. Signed so callers can distinguish
+    # "plenty of room" (> 0) from "about to OOM" (≈ 0) from "already past
+    # limit" (< 0, e.g. cgroup-constrained environments).
+    oom_margin_bytes = Int(Sys.total_memory()) - Int(rss_after)
+
     return (
         result                  = timed.value,
         wall_time_s             = timed.time,
@@ -237,6 +243,7 @@ function _capture_solve_metrics(solve_fn::Function)
         # Retained Julia heap after a full post-solve GC. Signed — negative
         # means the solve freed more of the pre-existing heap than it kept.
         live_heap_delta_bytes   = Int(live_after - live_before),
+        oom_margin_bytes        = oom_margin_bytes,
     )
 end
 
@@ -301,6 +308,7 @@ function benchmark_solve!(
         gc_full_count          = metrics.gc_full_count,
         peak_rss_delta_bytes   = metrics.peak_rss_delta_bytes,
         live_heap_delta_bytes  = metrics.live_heap_delta_bytes,
+        oom_margin_bytes       = metrics.oom_margin_bytes,
         solver_options         = opts_snapshot,
         julia_version          = string(VERSION),
         timestamp              = Dates.now(),
@@ -403,6 +411,7 @@ function benchmark_solve!(
         gc_full_count           = metrics.gc_full_count,
         peak_rss_delta_bytes    = metrics.peak_rss_delta_bytes,
         live_heap_delta_bytes   = metrics.live_heap_delta_bytes,
+        oom_margin_bytes        = metrics.oom_margin_bytes,
         solver_options          = solver_options,
         julia_version           = string(VERSION),
         timestamp               = Dates.now(),
@@ -427,4 +436,87 @@ function trial_to_eval_benchmark(trial::BenchmarkTools.Trial)::EvalBenchmark
         memory_bytes = Int(trial.memory),
         allocs       = Int(trial.allocs),
     )
+end
+
+# ============================================================================ #
+# Per-op micro-benchmarks — run BenchmarkTools on each MOI callback that a
+# solver exercises so we can tell where solve time is actually going (obj vs
+# grad vs Jacobian vs Hessian vs constraint). Useful alongside `benchmark_solve!`
+# when triaging GPU-vs-CPU discrepancies or Altissimo-vs-MadNLP shape.
+# ============================================================================ #
+
+"""
+    per_op_benchmark(evaluator, Z_vec; seconds=0.5, evals=1, samples=Inf) -> Dict{Symbol, EvalBenchmark}
+
+Run `BenchmarkTools.@benchmarkable` against each MOI callback that a typical
+NLP solver exercises, returning a `Dict` keyed by operation name:
+`:eval_objective`, `:eval_objective_gradient`, `:eval_constraint`,
+`:eval_constraint_jacobian`, and (when `evaluator.eval_hessian`)
+`:eval_hessian_lagrangian`.
+
+Each value is an `EvalBenchmark` summarizing `BenchmarkTools.Trial` timing and
+allocation distributions. Pass the returned dict into
+`MicroBenchmarkResult(..., eval_benchmarks=...)` to persist alongside a
+`BenchmarkResult` from the same solve.
+"""
+function per_op_benchmark(
+    evaluator::DirectTrajOpt.Solvers.Evaluator,
+    Z_vec::AbstractVector;
+    seconds::Real = 0.5,
+    evals::Int = 1,
+    samples::Int = 1_000,
+)::Dict{Symbol,EvalBenchmark}
+    n_vars = length(Z_vec)
+    n_con = evaluator.n_constraints
+    g = zeros(n_vars)
+    cons = zeros(n_con)
+
+    function _set_params!(b)
+        b.params.seconds = seconds
+        b.params.evals   = evals
+        b.params.samples = samples
+        return b
+    end
+
+    results = Dict{Symbol,EvalBenchmark}()
+
+    # Objective
+    bench_obj = BenchmarkTools.@benchmarkable MOI.eval_objective($evaluator, $Z_vec)
+    _set_params!(bench_obj)
+    results[:eval_objective] = trial_to_eval_benchmark(BenchmarkTools.run(bench_obj))
+
+    # Objective gradient
+    bench_grad = BenchmarkTools.@benchmarkable MOI.eval_objective_gradient($evaluator, $g, $Z_vec)
+    _set_params!(bench_grad)
+    results[:eval_objective_gradient] =
+        trial_to_eval_benchmark(BenchmarkTools.run(bench_grad))
+
+    # Constraint values
+    bench_con = BenchmarkTools.@benchmarkable MOI.eval_constraint($evaluator, $cons, $Z_vec)
+    _set_params!(bench_con)
+    results[:eval_constraint] = trial_to_eval_benchmark(BenchmarkTools.run(bench_con))
+
+    # Constraint Jacobian
+    n_jac = length(evaluator.jacobian_structure)
+    jac_buf = zeros(n_jac)
+    bench_jac = BenchmarkTools.@benchmarkable MOI.eval_constraint_jacobian($evaluator, $jac_buf, $Z_vec)
+    _set_params!(bench_jac)
+    results[:eval_constraint_jacobian] =
+        trial_to_eval_benchmark(BenchmarkTools.run(bench_jac))
+
+    # Lagrangian Hessian (only if the evaluator computes it)
+    if evaluator.eval_hessian
+        n_hess = length(evaluator.hessian_structure)
+        hess_buf = zeros(n_hess)
+        σ = 1.0
+        μ = zeros(n_con)
+        bench_hess = BenchmarkTools.@benchmarkable MOI.eval_hessian_lagrangian(
+            $evaluator, $hess_buf, $Z_vec, $σ, $μ
+        )
+        _set_params!(bench_hess)
+        results[:eval_hessian_lagrangian] =
+            trial_to_eval_benchmark(BenchmarkTools.run(bench_hess))
+    end
+
+    return results
 end
