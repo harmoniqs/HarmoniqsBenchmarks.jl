@@ -20,6 +20,7 @@ export evaluate_post_solve
 export snapshot_options
 export benchmark_solve!
 export trial_to_eval_benchmark
+export per_op_benchmark
 
 export ComparisonRow
 export compare_results
