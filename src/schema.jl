@@ -72,6 +72,13 @@ struct BenchmarkResult
     #   more than it kept. Captures retained/leaked heap, not transient peak.
     peak_rss_delta_bytes::Int
     live_heap_delta_bytes::Int
+    # OOM headroom: Sys.total_memory() - Sys.maxrss() at end of solve.
+    # Positive means the process had that many bytes of host RAM to spare when
+    # the solve completed. Zero or negative indicates the solve ran up against
+    # (or got killed by) the host's memory limit. Use in conjunction with
+    # peak_rss_delta_bytes when triaging GPU-bound benchmarks that exhibit
+    # unexpected host-side pressure.
+    oom_margin_bytes::Int
     # Options
     solver_options::Dict{Symbol,Any}
     # Metadata
@@ -104,6 +111,7 @@ function BenchmarkResult(;
     gc_full_count::Int,
     peak_rss_delta_bytes::Int = 0,
     live_heap_delta_bytes::Int = 0,
+    oom_margin_bytes::Int = 0,
     solver_options::Dict{Symbol,Any},
     julia_version::String,
     timestamp::DateTime,
@@ -133,12 +141,55 @@ function BenchmarkResult(;
         gc_full_count,
         peak_rss_delta_bytes,
         live_heap_delta_bytes,
+        oom_margin_bytes,
         solver_options,
         julia_version,
         timestamp,
         runner,
         n_threads,
     )
+end
+
+"""
+    AllocSample
+
+One sampled allocation from `Profile.Allocs.fetch()`, flattened to JLD2-safe
+primitive types so the profile survives serialization across Julia sessions.
+"""
+struct AllocSample
+    size_bytes::Int
+    type_name::String
+    stacktrace::Vector{String}
+end
+
+"""
+    AllocProfileResult
+
+Stores a `Profile.Allocs` run for one solve closure. Identity + problem dims
+match `BenchmarkResult` so profiles join back to solve results by
+`(benchmark_name, commit)`. The sample vector is kept raw — aggregations
+(by type, by module, by file/line) are cheap to compute at query time and not
+worth baking into the on-disk schema.
+"""
+struct AllocProfileResult
+    # Identity
+    package::String
+    solver::String
+    benchmark_name::String
+    commit::String
+    # Dims
+    N::Int
+    state_dim::Int
+    control_dim::Int
+    # Profile config + data
+    sample_rate::Float64
+    samples::Vector{AllocSample}
+    total_bytes::Int
+    total_count::Int
+    # Metadata
+    julia_version::String
+    timestamp::DateTime
+    runner::String
 end
 
 """

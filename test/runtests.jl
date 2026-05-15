@@ -315,6 +315,7 @@ using LinearAlgebra
         @test result.gc_time_ns >= 0
         @test result.peak_rss_delta_bytes >= 0   # clamped to non-negative
         @test isa(result.live_heap_delta_bytes, Int)  # can be negative (GC freed state)
+        @test isa(result.oom_margin_bytes, Int)       # host RAM minus post-solve RSS
 
         # Options snapshot includes max_iter
         @test haskey(result.solver_options, :max_iter)
@@ -375,6 +376,7 @@ using LinearAlgebra
         @test result.wall_time_s > 0.0
         @test result.total_allocations_bytes > 0   # the closure allocated
         @test result.total_allocs_count > 0
+        @test isa(result.oom_margin_bytes, Int)    # host RAM minus post-solve RSS
 
         # Run-time metadata passed through solver_options
         @test result.solver_options[:fidelity] == 0.999
@@ -441,6 +443,42 @@ using LinearAlgebra
         # Derived stats are consistent
         @test eb.min_ns <= eb.median_ns
         @test eb.min_ns <= eb.mean_ns
+    end
+
+    @testset "per_op_benchmark" begin
+        prob = _make_bilinear_prob()
+        (evaluator, Z_vec) = build_evaluator(prob; eval_hessian=true)
+
+        # Tiny budgets to keep CI fast
+        results = per_op_benchmark(
+            evaluator, Z_vec;
+            seconds=0.05, evals=1, samples=5,
+        )
+
+        expected_keys = [
+            :eval_objective,
+            :eval_objective_gradient,
+            :eval_constraint,
+            :eval_constraint_jacobian,
+            :eval_hessian_lagrangian,  # eval_hessian=true
+        ]
+        for k in expected_keys
+            @test haskey(results, k)
+            eb = results[k]
+            @test eb isa EvalBenchmark
+            @test !isempty(eb.times_ns)
+            @test eb.median_ns > 0.0
+            @test eb.min_ns > 0.0
+        end
+
+        # Without Hessian: key should be absent
+        (ev_nohess, Z2) = build_evaluator(prob; eval_hessian=false)
+        results2 = per_op_benchmark(
+            ev_nohess, Z2;
+            seconds=0.05, evals=1, samples=5,
+        )
+        @test !haskey(results2, :eval_hessian_lagrangian)
+        @test haskey(results2, :eval_objective)
     end
 
     @testset "Storage round-trip: MicroBenchmarkResult" begin
@@ -566,6 +604,55 @@ using LinearAlgebra
 
         # Check regression flag
         @test row.has_regression == true  # Wall time regression exceeds default threshold
+    end
+
+    @testset "benchmark_memory! + save/load roundtrip" begin
+        # Closure with a deterministic allocation so Profile.Allocs captures
+        # at least one sample regardless of sampler noise.
+        work() = sum(collect(1:1_000))
+
+        profile = benchmark_memory!(
+            work;
+            package = "test",
+            solver = "test",
+            benchmark_name = "alloc_smoke",
+            N = 1,
+            state_dim = 1,
+            control_dim = 1,
+            sample_rate = 1.0,
+            warmup = true,
+        )
+
+        @test profile isa AllocProfileResult
+        @test profile.package == "test"
+        @test profile.solver == "test"
+        @test profile.benchmark_name == "alloc_smoke"
+        @test profile.sample_rate == 1.0
+        @test profile.total_count == length(profile.samples)
+        @test profile.total_bytes ==
+              (isempty(profile.samples) ? 0 : sum(s.size_bytes for s in profile.samples))
+        @test profile.julia_version == string(VERSION)
+
+        if !isempty(profile.samples)
+            s = profile.samples[1]
+            @test s isa AllocSample
+            @test s.size_bytes > 0
+            @test isa(s.type_name, String)
+            @test isa(s.stacktrace, Vector{String})
+        end
+
+        dir = mktempdir()
+        path = save_alloc_profile(dir, profile.benchmark_name, profile)
+        @test isfile(path)
+        @test endswith(path, "_allocs.jld2")
+        @test occursin(profile.commit, path)
+
+        reloaded = load_alloc_profile(path)
+        @test reloaded isa AllocProfileResult
+        @test reloaded.commit == profile.commit
+        @test reloaded.total_count == profile.total_count
+        @test reloaded.total_bytes == profile.total_bytes
+        @test reloaded.benchmark_name == profile.benchmark_name
     end
 
 end
