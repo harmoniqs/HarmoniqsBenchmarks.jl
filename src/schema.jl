@@ -2,6 +2,83 @@ using Dates
 using Statistics
 
 """
+    ConvergenceCriterion
+
+Abstract supertype for per-benchmark convergence criteria. Concrete subtypes
+declare a problem-specific success bar (e.g. infidelity ≤ target) and are
+attached to a `BenchmarkResult` via its `convergence` field.
+
+The single-method API is `converged(::ConvergenceCriterion)::Bool`.
+"""
+abstract type ConvergenceCriterion end
+
+"""
+    InfidelityConvergence
+
+Convergence criterion for quantum gate/state synthesis: the solve is
+considered converged iff `final_infidelity ≤ target_infidelity` AND
+`primal_infeasibility ≤ feas_tol` (i.e. the dynamics constraints are
+actually satisfied — we never accept "good infidelity but infeasible").
+"""
+struct InfidelityConvergence <: ConvergenceCriterion
+    target_infidelity::Float64
+    final_infidelity::Float64
+    primal_infeasibility::Float64
+    feas_tol::Float64
+end
+
+function InfidelityConvergence(;
+    target_infidelity::Float64,
+    final_infidelity::Float64,
+    primal_infeasibility::Float64,
+    feas_tol::Float64,
+)
+    return InfidelityConvergence(
+        target_infidelity, final_infidelity, primal_infeasibility, feas_tol,
+    )
+end
+
+"""
+    ObjectiveConvergence
+
+Convergence criterion for non-quantum DTO problems where success is gated on
+the solver driving the objective below a problem-specific bar:
+`final_objective ≤ target_objective` AND `primal_infeasibility ≤ feas_tol`.
+"""
+struct ObjectiveConvergence <: ConvergenceCriterion
+    target_objective::Float64
+    final_objective::Float64
+    primal_infeasibility::Float64
+    feas_tol::Float64
+end
+
+function ObjectiveConvergence(;
+    target_objective::Float64,
+    final_objective::Float64,
+    primal_infeasibility::Float64,
+    feas_tol::Float64,
+)
+    return ObjectiveConvergence(
+        target_objective, final_objective, primal_infeasibility, feas_tol,
+    )
+end
+
+"""
+    converged(c::ConvergenceCriterion) -> Bool
+
+Did this benchmark meet its success bar AND satisfy the dynamics tolerance?
+"""
+function converged end
+
+converged(c::InfidelityConvergence) =
+    c.final_infidelity ≤ c.target_infidelity &&
+    c.primal_infeasibility ≤ c.feas_tol
+
+converged(c::ObjectiveConvergence) =
+    c.final_objective ≤ c.target_objective &&
+    c.primal_infeasibility ≤ c.feas_tol
+
+"""
     EvalBenchmark
 
 Stores per-eval-function timing data from a BenchmarkTools trial or similar measurement.
@@ -81,6 +158,11 @@ struct BenchmarkResult
     oom_margin_bytes::Int
     # Options
     solver_options::Dict{Symbol,Any}
+    # Convergence — optional; nothing for timing-only benchmarks.
+    # When set, identifies whether the solve met its problem-specific success
+    # bar (target_infidelity / target_objective) AND satisfied the dynamics
+    # tolerance (primal_infeasibility ≤ feas_tol).
+    convergence::Union{Nothing,ConvergenceCriterion}
     # Metadata
     julia_version::String
     timestamp::DateTime
@@ -113,6 +195,7 @@ function BenchmarkResult(;
     live_heap_delta_bytes::Int = 0,
     oom_margin_bytes::Int = 0,
     solver_options::Dict{Symbol,Any},
+    convergence::Union{Nothing,ConvergenceCriterion} = nothing,
     julia_version::String,
     timestamp::DateTime,
     runner::String,
@@ -143,6 +226,7 @@ function BenchmarkResult(;
         live_heap_delta_bytes,
         oom_margin_bytes,
         solver_options,
+        convergence,
         julia_version,
         timestamp,
         runner,
