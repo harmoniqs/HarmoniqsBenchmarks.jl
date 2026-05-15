@@ -275,6 +275,7 @@ function benchmark_solve!(
     benchmark_name::String = "unnamed",
     runner::String = "local",
     verbose::Bool = false,
+    convergence::Union{Nothing,ConvergenceCriterion} = nothing,
     kwargs...,
 )
     opts_snapshot = snapshot_options(options)
@@ -311,6 +312,7 @@ function benchmark_solve!(
         live_heap_delta_bytes  = metrics.live_heap_delta_bytes,
         oom_margin_bytes       = metrics.oom_margin_bytes,
         solver_options         = opts_snapshot,
+        convergence            = convergence,
         julia_version          = string(VERSION),
         timestamp              = Dates.now(),
         runner                 = runner,
@@ -371,6 +373,7 @@ function benchmark_solve!(
     solver_status::Symbol = :Unknown,
     solver_options::Dict{Symbol,Any} = Dict{Symbol,Any}(),
     runner::String = "local",
+    convergence::Union{Nothing,ConvergenceCriterion} = nothing,
     post_solve::Union{Nothing,Function} = nothing,
 )
     metrics = _capture_solve_metrics(solve_fn)
@@ -414,6 +417,7 @@ function benchmark_solve!(
         live_heap_delta_bytes   = metrics.live_heap_delta_bytes,
         oom_margin_bytes        = metrics.oom_margin_bytes,
         solver_options          = solver_options,
+        convergence             = convergence,
         julia_version           = string(VERSION),
         timestamp               = Dates.now(),
         runner                  = runner,

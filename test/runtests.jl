@@ -655,4 +655,405 @@ using LinearAlgebra
         @test reloaded.benchmark_name == profile.benchmark_name
     end
 
+    @testset "InfidelityConvergence" begin
+        c = InfidelityConvergence(
+            target_infidelity = 1e-4,
+            final_infidelity = 5e-5,
+            primal_infeasibility = 1e-7,
+            feas_tol = 1e-6,
+        )
+
+        @test c.target_infidelity == 1e-4
+        @test c.final_infidelity == 5e-5
+        @test c.primal_infeasibility == 1e-7
+        @test c.feas_tol == 1e-6
+        @test c isa ConvergenceCriterion
+        @test converged(c) == true
+
+        # Boundary: final == target counts as converged (`≤`).
+        c_boundary = InfidelityConvergence(
+            target_infidelity = 1e-4,
+            final_infidelity = 1e-4,
+            primal_infeasibility = 0.0,
+            feas_tol = 1e-6,
+        )
+        @test converged(c_boundary) == true
+
+        # Final above target ⇒ not converged.
+        c_high_infid = InfidelityConvergence(
+            target_infidelity = 1e-4,
+            final_infidelity = 2e-4,
+            primal_infeasibility = 0.0,
+            feas_tol = 1e-6,
+        )
+        @test converged(c_high_infid) == false
+
+        # Infidelity OK but dynamics not satisfied ⇒ not converged.
+        c_infeasible = InfidelityConvergence(
+            target_infidelity = 1e-4,
+            final_infidelity = 5e-5,
+            primal_infeasibility = 1e-3,
+            feas_tol = 1e-6,
+        )
+        @test converged(c_infeasible) == false
+    end
+
+    @testset "ObjectiveConvergence" begin
+        c = ObjectiveConvergence(
+            target_objective = 0.1,
+            final_objective = 0.05,
+            primal_infeasibility = 1e-7,
+            feas_tol = 1e-6,
+        )
+
+        @test c.target_objective == 0.1
+        @test c.final_objective == 0.05
+        @test c.primal_infeasibility == 1e-7
+        @test c.feas_tol == 1e-6
+        @test c isa ConvergenceCriterion
+        @test converged(c) == true
+
+        c_boundary = ObjectiveConvergence(
+            target_objective = 0.1,
+            final_objective = 0.1,
+            primal_infeasibility = 0.0,
+            feas_tol = 1e-6,
+        )
+        @test converged(c_boundary) == true
+
+        c_high_obj = ObjectiveConvergence(
+            target_objective = 0.1,
+            final_objective = 0.2,
+            primal_infeasibility = 0.0,
+            feas_tol = 1e-6,
+        )
+        @test converged(c_high_obj) == false
+
+        c_infeasible = ObjectiveConvergence(
+            target_objective = 0.1,
+            final_objective = 0.05,
+            primal_infeasibility = 1e-3,
+            feas_tol = 1e-6,
+        )
+        @test converged(c_infeasible) == false
+    end
+
+    @testset "BenchmarkResult.convergence field" begin
+        kw = (
+            package = "HarmoniqsBenchmarks",
+            package_version = "0.2.0",
+            commit = "abc1234",
+            benchmark_name = "convergence_field_test",
+            N = 10,
+            state_dim = 4,
+            control_dim = 2,
+            n_constraints = 80,
+            n_variables = 100,
+            wall_time_s = 1.0,
+            iterations = 42,
+            objective_value = 0.5,
+            constraint_violation = 1e-8,
+            solver_status = :Optimal,
+            solver = "Ipopt",
+            total_allocations_bytes = 0,
+            total_allocs_count = 0,
+            gc_time_ns = 0,
+            gc_count = 0,
+            gc_full_count = 0,
+            solver_options = Dict{Symbol,Any}(),
+            julia_version = string(VERSION),
+            timestamp = now(),
+            runner = "test",
+            n_threads = 1,
+        )
+
+        # Omitted ⇒ defaults to nothing.
+        br_default = BenchmarkResult(; kw...)
+        @test br_default.convergence === nothing
+
+        # Provided ⇒ stored as-is.
+        crit = InfidelityConvergence(
+            target_infidelity = 1e-4,
+            final_infidelity = 5e-5,
+            primal_infeasibility = 1e-8,
+            feas_tol = 1e-6,
+        )
+        br_quantum = BenchmarkResult(; kw..., convergence = crit)
+        @test br_quantum.convergence === crit
+        @test br_quantum.convergence isa InfidelityConvergence
+        @test converged(br_quantum.convergence) == true
+
+        # Generic DTO subtype also accepted.
+        obj_crit = ObjectiveConvergence(
+            target_objective = 1.0,
+            final_objective = 0.5,
+            primal_infeasibility = 1e-8,
+            feas_tol = 1e-6,
+        )
+        br_dto = BenchmarkResult(; kw..., convergence = obj_crit)
+        @test br_dto.convergence isa ObjectiveConvergence
+        @test converged(br_dto.convergence) == true
+    end
+
+    @testset "Storage round-trip: convergence" begin
+        kw = (
+            package = "HarmoniqsBenchmarks",
+            package_version = "0.2.0",
+            commit = "roundtrip",
+            benchmark_name = "convergence_roundtrip",
+            N = 10,
+            state_dim = 4,
+            control_dim = 2,
+            n_constraints = 80,
+            n_variables = 100,
+            wall_time_s = 1.0,
+            iterations = 42,
+            objective_value = 0.5,
+            constraint_violation = 1e-8,
+            solver_status = :Optimal,
+            solver = "Ipopt",
+            total_allocations_bytes = 0,
+            total_allocs_count = 0,
+            gc_time_ns = 0,
+            gc_count = 0,
+            gc_full_count = 0,
+            solver_options = Dict{Symbol,Any}(),
+            julia_version = string(VERSION),
+            timestamp = now(),
+            runner = "test",
+            n_threads = 1,
+        )
+
+        crit = InfidelityConvergence(
+            target_infidelity = 1e-4,
+            final_infidelity = 5e-5,
+            primal_infeasibility = 1e-8,
+            feas_tol = 1e-6,
+        )
+
+        br_quantum   = BenchmarkResult(; kw..., convergence = crit)
+        br_dto       = BenchmarkResult(; kw...,
+                       convergence = ObjectiveConvergence(
+                           target_objective = 1.0,
+                           final_objective = 0.5,
+                           primal_infeasibility = 1e-8,
+                           feas_tol = 1e-6,
+                       ))
+        br_timing    = BenchmarkResult(; kw...)  # convergence === nothing
+
+        dir = mktempdir()
+        path = save_results(dir, "convergence_mix", [br_quantum, br_dto, br_timing])
+        loaded = load_results(path)
+
+        @test length(loaded) == 3
+
+        @test loaded[1].convergence isa InfidelityConvergence
+        @test loaded[1].convergence.target_infidelity == 1e-4
+        @test loaded[1].convergence.final_infidelity == 5e-5
+        @test loaded[1].convergence.primal_infeasibility == 1e-8
+        @test loaded[1].convergence.feas_tol == 1e-6
+        @test converged(loaded[1].convergence) == true
+
+        @test loaded[2].convergence isa ObjectiveConvergence
+        @test loaded[2].convergence.target_objective == 1.0
+        @test loaded[2].convergence.final_objective == 0.5
+        @test converged(loaded[2].convergence) == true
+
+        @test loaded[3].convergence === nothing
+    end
+
+    @testset "ipopt_capture: state defaults + accessors" begin
+        state, factory = ipopt_capture()
+        @test state isa IpoptCapture
+        @test ipopt_iterations(state) == 0
+        @test ipopt_primal_infeasibility(state) == Inf
+        @test state.inf_du == Inf
+        @test isnan(state.objective)
+        # `factory` should be callable with a DTO/Ipopt Optimizer to produce
+        # the actual Ipopt callback; we don't exercise the live solve here
+        # (see "ipopt_capture: callback mutation" for that).
+        @test factory isa Function
+    end
+
+    @testset "ipopt_capture: callback mutation" begin
+        # Test the callback closure directly with a synthetic IpoptOptimizerState
+        # NamedTuple — no live solve needed, decoupling this test from solver
+        # convergence flakiness on toy problems.
+        state = IpoptCapture()
+        cb = ipopt_capture_callback(state)
+        fake_state = (
+            alg_mod              = Int32(0),
+            iter_count           = Int32(7),
+            obj_value            = 3.14,
+            inf_pr               = 1.5e-5,
+            inf_du               = 2.0e-4,
+            mu                   = 0.1,
+            d_norm               = 0.5,
+            regularization_size  = 0.0,
+            alpha_du             = 1.0,
+            alpha_pr             = 1.0,
+            ls_trials            = Int32(2),
+        )
+
+        @test cb(nothing, fake_state) === true
+
+        @test ipopt_iterations(state) == 7
+        @test ipopt_primal_infeasibility(state) ≈ 1.5e-5
+        @test state.inf_du ≈ 2.0e-4
+        @test state.objective ≈ 3.14
+
+        # Re-firing with a later iter_count overwrites — captures the *final*
+        # iteration's values.
+        cb(nothing, merge(fake_state, (iter_count = Int32(42), obj_value = 0.01)))
+        @test ipopt_iterations(state) == 42
+        @test state.objective ≈ 0.01
+    end
+
+    @testset "compare_convergence" begin
+        kw_common = (
+            package = "HarmoniqsBenchmarks",
+            package_version = "0.2.0",
+            commit = "cmpconv",
+            N = 10,
+            state_dim = 4,
+            control_dim = 2,
+            n_constraints = 80,
+            n_variables = 100,
+            objective_value = 0.0,
+            constraint_violation = 1e-8,
+            solver_status = :Optimal,
+            total_allocations_bytes = 0,
+            total_allocs_count = 0,
+            gc_time_ns = 0,
+            gc_count = 0,
+            gc_full_count = 0,
+            solver_options = Dict{Symbol,Any}(),
+            julia_version = string(VERSION),
+            timestamp = now(),
+            runner = "test",
+            n_threads = 1,
+        )
+
+        br_quantum_pass = BenchmarkResult(; kw_common...,
+            benchmark_name = "x_gate",
+            solver = "Ipopt",
+            iterations = 15,
+            wall_time_s = 1.2,
+            convergence = InfidelityConvergence(
+                target_infidelity = 1e-4, final_infidelity = 5e-5,
+                primal_infeasibility = 1e-7, feas_tol = 1e-6,
+            ),
+        )
+
+        br_quantum_fail_altissimo = BenchmarkResult(; kw_common...,
+            benchmark_name = "x_gate",
+            solver = "Altissimo",
+            iterations = 100,
+            wall_time_s = 2.5,
+            convergence = InfidelityConvergence(
+                target_infidelity = 1e-4, final_infidelity = 5e-3,
+                primal_infeasibility = 1e-7, feas_tol = 1e-6,
+            ),
+        )
+
+        br_dto_fail = BenchmarkResult(; kw_common...,
+            benchmark_name = "cartpole",
+            solver = "Ipopt",
+            iterations = 200,
+            wall_time_s = 10.0,
+            convergence = ObjectiveConvergence(
+                target_objective = 0.1, final_objective = 0.5,
+                primal_infeasibility = 1e-7, feas_tol = 1e-6,
+            ),
+        )
+
+        br_timing_only = BenchmarkResult(; kw_common...,
+            benchmark_name = "ignore_me",
+            solver = "Ipopt",
+            iterations = 1,
+            wall_time_s = 0.1,
+        )  # convergence === nothing → filtered out
+
+        results = [br_quantum_pass, br_quantum_fail_altissimo, br_dto_fail, br_timing_only]
+        rows = compare_convergence(results)
+
+        # Three results carry a ConvergenceCriterion; the timing-only one is filtered.
+        @test length(rows) == 3
+
+        # Each row is a ConvergenceRow with the right shape.
+        @test all(r -> r isa ConvergenceRow, rows)
+
+        # Find rows by (name, solver) — order from input is preserved.
+        ipopt_xgate = rows[1]
+        @test ipopt_xgate.benchmark_name == "x_gate"
+        @test ipopt_xgate.solver == "Ipopt"
+        @test ipopt_xgate.converged == true
+        @test ipopt_xgate.iterations == 15
+        @test ipopt_xgate.wall_time_s == 1.2
+        @test ipopt_xgate.criterion isa InfidelityConvergence
+
+        altissimo_xgate = rows[2]
+        @test altissimo_xgate.solver == "Altissimo"
+        @test altissimo_xgate.converged == false  # 5e-3 > 1e-4
+
+        cartpole = rows[3]
+        @test cartpole.benchmark_name == "cartpole"
+        @test cartpole.criterion isa ObjectiveConvergence
+        @test cartpole.converged == false
+
+        # Empty input -> empty output (no errors).
+        @test isempty(compare_convergence(BenchmarkResult[]))
+
+        # Vector of only-timing results -> empty output.
+        @test isempty(compare_convergence([br_timing_only]))
+    end
+
+    @testset "benchmark_solve! threads convergence kwarg" begin
+        crit = InfidelityConvergence(
+            target_infidelity = 1e-4, final_infidelity = 5e-5,
+            primal_infeasibility = 1e-7, feas_tol = 1e-6,
+        )
+
+        # DTO-typed method
+        prob = _make_bilinear_prob()
+        result_dto = benchmark_solve!(prob, IpoptOptions(max_iter=5, print_level=0);
+            benchmark_name = "bilinear_conv",
+            runner = "test",
+            convergence = crit,
+        )
+        @test result_dto.convergence === crit
+        @test result_dto.convergence isa InfidelityConvergence
+
+        # Omitting it still works → defaults to nothing.
+        result_dto_default = benchmark_solve!(prob, IpoptOptions(max_iter=5, print_level=0);
+            benchmark_name = "bilinear_no_conv",
+            runner = "test",
+        )
+        @test result_dto_default.convergence === nothing
+
+        # do-block form
+        result_doblock = benchmark_solve!(
+            package        = "TestPkg",
+            solver         = "FakeSolver",
+            benchmark_name = "fake_conv",
+            N = 10, state_dim = 4, control_dim = 2,
+            n_constraints = 80, n_variables = 100,
+            convergence    = crit,
+        ) do
+            nothing
+        end
+        @test result_doblock.convergence === crit
+
+        result_doblock_default = benchmark_solve!(
+            package        = "TestPkg",
+            solver         = "FakeSolver",
+            benchmark_name = "fake_no_conv",
+            N = 10, state_dim = 4, control_dim = 2,
+            n_constraints = 80, n_variables = 100,
+        ) do
+            nothing
+        end
+        @test result_doblock_default.convergence === nothing
+    end
+
 end

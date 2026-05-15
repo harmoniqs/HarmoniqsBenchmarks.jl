@@ -19,6 +19,47 @@ struct ComparisonRow
 end
 
 """
+    ConvergenceRow
+
+One row of a convergence comparison: did `(benchmark_name, solver)` meet its
+problem-specific success bar, in how many iters and wall-clock seconds, with
+what criterion. Produced by [`compare_convergence`](@ref).
+"""
+struct ConvergenceRow
+    benchmark_name::String
+    solver::String
+    converged::Bool
+    iterations::Int
+    wall_time_s::Float64
+    criterion::ConvergenceCriterion
+end
+
+"""
+    compare_convergence(results::Vector{BenchmarkResult}) -> Vector{ConvergenceRow}
+
+Distill convergence info from a vector of benchmark results into a flat,
+report-friendly shape. Results whose `convergence` field is `nothing`
+(timing-only benchmarks) are skipped. Input order is preserved for the
+results that remain.
+"""
+function compare_convergence(results::Vector{BenchmarkResult})::Vector{ConvergenceRow}
+    rows = ConvergenceRow[]
+    for r in results
+        crit = r.convergence
+        crit === nothing && continue
+        push!(rows, ConvergenceRow(
+            r.benchmark_name,
+            r.solver,
+            converged(crit),
+            r.iterations,
+            r.wall_time_s,
+            crit,
+        ))
+    end
+    return rows
+end
+
+"""
     compare_results(baseline::Vector{BenchmarkResult}, current::Vector{BenchmarkResult}; regression_threshold=10.0) -> Vector{ComparisonRow}
 
 Compare baseline and current benchmark results, matching by benchmark_name.

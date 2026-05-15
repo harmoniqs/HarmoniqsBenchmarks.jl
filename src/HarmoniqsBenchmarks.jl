@@ -3,6 +3,7 @@ module HarmoniqsBenchmarks
 include("schema.jl")
 include("storage.jl")
 include("harness.jl")
+include("extractors.jl")
 include("report.jl")
 
 export EvalBenchmark
@@ -29,5 +30,18 @@ export per_op_benchmark
 
 export ComparisonRow
 export compare_results
+export ConvergenceRow
+export compare_convergence
+
+export ConvergenceCriterion
+export InfidelityConvergence
+export ObjectiveConvergence
+export converged
+
+export IpoptCapture
+export ipopt_capture
+export ipopt_capture_callback
+export ipopt_iterations
+export ipopt_primal_infeasibility
 
 end
