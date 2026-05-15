@@ -14,13 +14,13 @@ Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [sources]
-# TODO: remove branch pin once feat/madnlp-integration merges to main and a release is tagged
-DirectTrajOpt = {url = "https://github.com/harmoniqs/DirectTrajOpt.jl", rev = "feat/madnlp-integration"}
+# TODO: remove branch pin once feat/madnlp-gpu-passthroughs merges to main and a release is tagged
+DirectTrajOpt = {url = "https://github.com/harmoniqs/DirectTrajOpt.jl", rev = "feat/madnlp-gpu-passthroughs"}
 
 [compat]
 BenchmarkTools = "1"
 Dates = "1"
-DirectTrajOpt = "0.8"
+DirectTrajOpt = "0.8, 0.9"
 JLD2 = "0.6"
 MathOptInterface = "1"
 NamedTrajectories = "0.8"

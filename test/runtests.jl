@@ -484,6 +484,305 @@ using LinearAlgebra
         end
     end
 
+    # ------------------------------------------------------------------ #
+    # Allocation profiling (schema, storage, harness, report)
+    # ------------------------------------------------------------------ #
+
+    @testset "AllocationSite construction" begin
+        site = AllocationSite(
+            module_name   = "DirectTrajOpt.Solvers",
+            function_name = "eval_constraint",
+            file          = "src/solvers/evaluator.jl",
+            line          = 142,
+            total_bytes   = 48_200_000,
+            count         = 1204,
+            type_breakdown = Dict{String,Int}(
+                "Vector{Float64}" => 45_100_000,
+                "Matrix{Float64}" => 3_100_000,
+            ),
+        )
+
+        @test site.module_name == "DirectTrajOpt.Solvers"
+        @test site.function_name == "eval_constraint"
+        @test site.file == "src/solvers/evaluator.jl"
+        @test site.line == 142
+        @test site.total_bytes == 48_200_000
+        @test site.count == 1204
+        @test site.type_breakdown["Vector{Float64}"] == 45_100_000
+        @test site.type_breakdown["Matrix{Float64}"] == 3_100_000
+        @test length(site.type_breakdown) == 2
+    end
+
+    @testset "AllocationProfile construction" begin
+        site1 = AllocationSite(
+            module_name   = "Mod.A",
+            function_name = "hot_fn",
+            file          = "src/a.jl",
+            line          = 10,
+            total_bytes   = 1_000_000,
+            count         = 500,
+            type_breakdown = Dict{String,Int}("Vector{Float64}" => 1_000_000),
+        )
+        site2 = AllocationSite(
+            module_name   = "Mod.B",
+            function_name = "warm_fn",
+            file          = "src/b.jl",
+            line          = 20,
+            total_bytes   = 200_000,
+            count         = 100,
+            type_breakdown = Dict{String,Int}("Matrix{Float64}" => 200_000),
+        )
+
+        profile = AllocationProfile(
+            package             = "DirectTrajOpt",
+            solver              = "Ipopt",
+            benchmark_name      = "bilinear_N51",
+            commit              = "abc1234",
+            N                   = 51,
+            state_dim           = 4,
+            control_dim         = 2,
+            sample_rate         = 1.0,
+            sites               = [site1, site2],
+            total_sampled_bytes = 1_200_000,
+            total_sampled_count = 600,
+            julia_version       = "1.12.0",
+            timestamp           = DateTime(2026, 4, 17),
+            runner              = "local",
+        )
+
+        @test profile.package == "DirectTrajOpt"
+        @test profile.solver == "Ipopt"
+        @test profile.benchmark_name == "bilinear_N51"
+        @test profile.commit == "abc1234"
+        @test profile.N == 51
+        @test profile.state_dim == 4
+        @test profile.control_dim == 2
+        @test profile.sample_rate == 1.0
+        @test length(profile.sites) == 2
+        @test profile.sites[1].function_name == "hot_fn"
+        @test profile.sites[2].function_name == "warm_fn"
+        @test profile.total_sampled_bytes == 1_200_000
+        @test profile.total_sampled_count == 600
+        @test profile.julia_version == "1.12.0"
+        @test profile.timestamp == DateTime(2026, 4, 17)
+        @test profile.runner == "local"
+    end
+
+    @testset "Storage round-trip: AllocationProfile" begin
+        site = AllocationSite(
+            module_name   = "TestMod",
+            function_name = "alloc_fn",
+            file          = "src/test.jl",
+            line          = 55,
+            total_bytes   = 999,
+            count         = 3,
+            type_breakdown = Dict{String,Int}("String" => 999),
+        )
+
+        profile = AllocationProfile(
+            package             = "TestPkg",
+            solver              = "TestSolver",
+            benchmark_name      = "roundtrip_alloc",
+            commit              = "deadbeef",
+            N                   = 10,
+            state_dim           = 2,
+            control_dim         = 1,
+            sample_rate         = 0.5,
+            sites               = [site],
+            total_sampled_bytes = 999,
+            total_sampled_count = 3,
+            julia_version       = "1.12.0",
+            timestamp           = DateTime(2026, 4, 17, 14, 0, 0),
+            runner              = "ci",
+        )
+
+        mktempdir() do dir
+            path = save_alloc_profile(dir, "alloc_test", profile)
+            @test isfile(path)
+            @test endswith(path, ".jld2")
+            @test contains(path, "alloc_profile_")
+
+            loaded = load_alloc_profile(path)
+
+            @test loaded.package == profile.package
+            @test loaded.solver == profile.solver
+            @test loaded.benchmark_name == profile.benchmark_name
+            @test loaded.commit == profile.commit
+            @test loaded.N == profile.N
+            @test loaded.state_dim == profile.state_dim
+            @test loaded.control_dim == profile.control_dim
+            @test loaded.sample_rate == profile.sample_rate
+            @test length(loaded.sites) == 1
+            @test loaded.sites[1].module_name == "TestMod"
+            @test loaded.sites[1].function_name == "alloc_fn"
+            @test loaded.sites[1].file == "src/test.jl"
+            @test loaded.sites[1].line == 55
+            @test loaded.sites[1].total_bytes == 999
+            @test loaded.sites[1].count == 3
+            @test loaded.sites[1].type_breakdown["String"] == 999
+            @test loaded.total_sampled_bytes == 999
+            @test loaded.total_sampled_count == 3
+            @test loaded.timestamp == profile.timestamp
+            @test loaded.runner == "ci"
+        end
+    end
+
+    @testset "profile_allocations do-block" begin
+        # Profile a closure that does known allocations
+        profile = profile_allocations(
+            package        = "TestPkg",
+            solver         = "TestSolver",
+            benchmark_name = "alloc_profile_test",
+            commit         = "abc1234",
+            N              = 10,
+            state_dim      = 2,
+            control_dim    = 1,
+            sample_rate    = 1.0,
+            runner         = "test",
+        ) do
+            # Allocate vectors that Profile.Allocs should capture
+            vecs = Vector{Float64}[]
+            for _ in 1:50
+                push!(vecs, zeros(1000))
+            end
+            return vecs
+        end
+
+        @test profile isa AllocationProfile
+        @test profile.package == "TestPkg"
+        @test profile.solver == "TestSolver"
+        @test profile.benchmark_name == "alloc_profile_test"
+        @test profile.commit == "abc1234"
+        @test profile.N == 10
+        @test profile.state_dim == 2
+        @test profile.control_dim == 1
+        @test profile.sample_rate == 1.0
+        @test profile.runner == "test"
+        @test profile.julia_version == string(VERSION)
+        @test profile.timestamp isa DateTime
+
+        # Should have captured some allocation sites
+        @test length(profile.sites) > 0
+        @test profile.total_sampled_bytes > 0
+        @test profile.total_sampled_count > 0
+
+        # Sites should be sorted by total_bytes descending
+        for i in 1:length(profile.sites)-1
+            @test profile.sites[i].total_bytes >= profile.sites[i+1].total_bytes
+        end
+
+        # Each site should have valid fields
+        for site in profile.sites
+            @test !isempty(site.function_name) || !isempty(site.module_name)
+            @test site.total_bytes > 0
+            @test site.count > 0
+            @test site.line >= 0
+            # type_breakdown bytes should sum to total_bytes
+            @test sum(values(site.type_breakdown)) == site.total_bytes
+        end
+    end
+
+    @testset "profile_allocations with low sample_rate" begin
+        profile = profile_allocations(
+            package        = "TestPkg",
+            solver         = "TestSolver",
+            benchmark_name = "low_sample",
+            commit         = "abc1234",
+            N              = 5,
+            state_dim      = 2,
+            control_dim    = 1,
+            sample_rate    = 0.01,
+            runner         = "test",
+        ) do
+            # Lots of small allocations — low sample rate should still catch some
+            for _ in 1:10_000
+                _ = zeros(10)
+            end
+        end
+
+        @test profile isa AllocationProfile
+        @test profile.sample_rate == 0.01
+        # With 10k allocations at 1% sample rate, we should get ~100 samples
+        # but the exact count is stochastic — just verify it's non-negative
+        @test profile.total_sampled_count >= 0
+        @test profile.total_sampled_bytes >= 0
+    end
+
+    @testset "summarize_allocations" begin
+        sites = [
+            AllocationSite(
+                module_name   = "Hot.Module",
+                function_name = "big_alloc",
+                file          = "src/hot.jl",
+                line          = 42,
+                total_bytes   = 50_000_000,
+                count         = 1000,
+                type_breakdown = Dict{String,Int}(
+                    "Vector{Float64}" => 48_000_000,
+                    "Matrix{Float64}" => 2_000_000,
+                ),
+            ),
+            AllocationSite(
+                module_name   = "Warm.Module",
+                function_name = "medium_alloc",
+                file          = "src/warm.jl",
+                line          = 77,
+                total_bytes   = 5_000_000,
+                count         = 200,
+                type_breakdown = Dict{String,Int}("Vector{Float64}" => 5_000_000),
+            ),
+            AllocationSite(
+                module_name   = "Cold.Module",
+                function_name = "small_alloc",
+                file          = "src/cold.jl",
+                line          = 3,
+                total_bytes   = 100_000,
+                count         = 50,
+                type_breakdown = Dict{String,Int}("String" => 100_000),
+            ),
+        ]
+
+        profile = AllocationProfile(
+            package             = "TestPkg",
+            solver              = "Ipopt",
+            benchmark_name      = "summary_test",
+            commit              = "abc1234",
+            N                   = 51,
+            state_dim           = 4,
+            control_dim         = 2,
+            sample_rate         = 1.0,
+            sites               = sites,
+            total_sampled_bytes = 55_100_000,
+            total_sampled_count = 1250,
+            julia_version       = "1.12.0",
+            timestamp           = DateTime(2026, 4, 17),
+            runner              = "local",
+        )
+
+        # Capture output
+        output = sprint(summarize_allocations, profile)
+
+        # Should contain the solver and benchmark name
+        @test contains(output, "Ipopt")
+        @test contains(output, "summary_test")
+
+        # Should list the top sites
+        @test contains(output, "big_alloc")
+        @test contains(output, "medium_alloc")
+
+        # Should show type breakdowns
+        @test contains(output, "Vector{Float64}")
+
+        # Should show file:line references
+        @test contains(output, "src/hot.jl")
+        @test contains(output, "42")
+
+        # Test top_n limiting
+        output_top1 = sprint(io -> summarize_allocations(io, profile; top_n=1))
+        @test contains(output_top1, "big_alloc")
+        @test !contains(output_top1, "medium_alloc")
+    end
+
     @testset "compare_results" begin
         # Create baseline result
         baseline = BenchmarkResult(
