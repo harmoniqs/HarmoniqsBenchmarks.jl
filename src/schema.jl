@@ -34,7 +34,10 @@ function InfidelityConvergence(;
     feas_tol::Float64,
 )
     return InfidelityConvergence(
-        target_infidelity, final_infidelity, primal_infeasibility, feas_tol,
+        target_infidelity,
+        final_infidelity,
+        primal_infeasibility,
+        feas_tol,
     )
 end
 
@@ -59,7 +62,10 @@ function ObjectiveConvergence(;
     feas_tol::Float64,
 )
     return ObjectiveConvergence(
-        target_objective, final_objective, primal_infeasibility, feas_tol,
+        target_objective,
+        final_objective,
+        primal_infeasibility,
+        feas_tol,
     )
 end
 
@@ -71,12 +77,10 @@ Did this benchmark meet its success bar AND satisfy the dynamics tolerance?
 function converged end
 
 converged(c::InfidelityConvergence) =
-    c.final_infidelity ≤ c.target_infidelity &&
-    c.primal_infeasibility ≤ c.feas_tol
+    c.final_infidelity ≤ c.target_infidelity && c.primal_infeasibility ≤ c.feas_tol
 
 converged(c::ObjectiveConvergence) =
-    c.final_objective ≤ c.target_objective &&
-    c.primal_infeasibility ≤ c.feas_tol
+    c.final_objective ≤ c.target_objective && c.primal_infeasibility ≤ c.feas_tol
 
 """
     EvalBenchmark
@@ -104,7 +108,15 @@ function EvalBenchmark(;
     median_ns = median(times_ns)
     min_ns = minimum(times_ns)
     mean_ns = mean(times_ns)
-    return EvalBenchmark(times_ns, gctimes_ns, memory_bytes, allocs, median_ns, min_ns, mean_ns)
+    return EvalBenchmark(
+        times_ns,
+        gctimes_ns,
+        memory_bytes,
+        allocs,
+        median_ns,
+        min_ns,
+        mean_ns,
+    )
 end
 
 """

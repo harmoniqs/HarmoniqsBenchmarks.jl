@@ -108,10 +108,7 @@ using LinearAlgebra
             N = 50,
             state_dim = 4,
             control_dim = 2,
-            eval_benchmarks = Dict{Symbol,EvalBenchmark}(
-                :jacobian => eb1,
-                :hessian => eb2,
-            ),
+            eval_benchmarks = Dict{Symbol,EvalBenchmark}(:jacobian => eb1, :hessian => eb2),
             julia_version = "1.12.0",
             timestamp = DateTime(2026, 4, 14),
             runner = "local",
@@ -186,18 +183,26 @@ using LinearAlgebra
     # ------------------------------------------------------------------ #
 
     # Helper: build the bilinear test problem used across harness tests
-    function _make_bilinear_prob(; N=10, Δt=0.1, u_bound=0.1, ω=0.1)
+    function _make_bilinear_prob(; N = 10, Δt = 0.1, u_bound = 0.1, ω = 0.1)
         Gx = sparse(Float64[0 0 0 1; 0 0 1 0; 0 -1 0 0; -1 0 0 0])
         Gy = sparse(Float64[0 -1 0 0; 1 0 0 0; 0 0 0 -1; 0 0 1 0])
         Gz = sparse(Float64[0 0 1 0; 0 0 0 -1; -1 0 0 0; 0 1 0 0])
         G(u) = ω * Gz + u[1] * Gx + u[2] * Gy
 
         traj = NamedTrajectory(
-            (x=2rand(4,N).-1, u=u_bound*(2rand(2,N).-1), du=randn(2,N), ddu=randn(2,N), Δt=fill(Δt,N));
-            controls=(:ddu,:Δt), timestep=:Δt,
-            bounds=(u=u_bound, Δt=(0.01,0.5)),
-            initial=(x=[1.0,0.0,0.0,0.0], u=zeros(2)), final=(u=zeros(2),),
-            goal=(x=[0.0,1.0,0.0,0.0],),
+            (
+                x = 2rand(4, N) .- 1,
+                u = u_bound*(2rand(2, N) .- 1),
+                du = randn(2, N),
+                ddu = randn(2, N),
+                Δt = fill(Δt, N),
+            );
+            controls = (:ddu, :Δt),
+            timestep = :Δt,
+            bounds = (u = u_bound, Δt = (0.01, 0.5)),
+            initial = (x = [1.0, 0.0, 0.0, 0.0], u = zeros(2)),
+            final = (u = zeros(2),),
+            goal = (x = [0.0, 1.0, 0.0, 0.0],),
         )
         integrators = [
             BilinearIntegrator(G, :x, :u, traj),
@@ -224,7 +229,7 @@ using LinearAlgebra
         @test isfinite(obj)
 
         # eval_hessian=false variant also works
-        (ev2, Z_vec2) = build_evaluator(prob; eval_hessian=false)
+        (ev2, Z_vec2) = build_evaluator(prob; eval_hessian = false)
         @test length(Z_vec2) == expected_len
         @test !ev2.eval_hessian
     end
@@ -256,13 +261,14 @@ using LinearAlgebra
         @test dims.state_dim == 4              # :x component has dim 4
         @test dims.control_dim == 2            # :ddu (2); Δt is timestep, excluded
         @test dims.n_constraints > 0
-        @test dims.n_variables == prob.trajectory.dim * prob.trajectory.N + prob.trajectory.global_dim
+        @test dims.n_variables ==
+              prob.trajectory.dim * prob.trajectory.N + prob.trajectory.global_dim
     end
 
     @testset "evaluate_post_solve" begin
         prob = _make_bilinear_prob()
         # Solve first so trajectory has meaningful values
-        solve!(prob; options=IpoptOptions(max_iter=5, print_level=0), verbose=false)
+        solve!(prob; options = IpoptOptions(max_iter = 5, print_level = 0), verbose = false)
 
         post = evaluate_post_solve(prob)
         @test isfinite(post.objective_value)
@@ -272,7 +278,7 @@ using LinearAlgebra
     end
 
     @testset "snapshot_options" begin
-        opts = IpoptOptions(max_iter=42, tol=1e-6, print_level=0)
+        opts = IpoptOptions(max_iter = 42, tol = 1e-6, print_level = 0)
         snap = snapshot_options(opts)
 
         @test snap isa Dict{Symbol,Any}
@@ -285,9 +291,10 @@ using LinearAlgebra
 
     @testset "benchmark_solve!" begin
         prob = _make_bilinear_prob()
-        opts = IpoptOptions(max_iter=5, print_level=0)
+        opts = IpoptOptions(max_iter = 5, print_level = 0)
 
-        result = benchmark_solve!(prob, opts; benchmark_name="test_bilinear", runner="test")
+        result =
+            benchmark_solve!(prob, opts; benchmark_name = "test_bilinear", runner = "test")
 
         # Identity fields
         @test result.package == "DirectTrajOpt"
@@ -330,26 +337,26 @@ using LinearAlgebra
     @testset "benchmark_solve! do-block (generic)" begin
         # Run a fake "solve" that just allocates and sleeps
         result = benchmark_solve!(
-            package         = "TestPkg",
+            package = "TestPkg",
             package_version = "0.0.0",
-            commit          = "abc1234",
-            solver          = "FakeSolver",
-            benchmark_name  = "fake_solve",
-            N               = 42,
-            state_dim       = 7,
-            control_dim     = 3,
-            n_constraints   = 100,
-            n_variables     = 200,
-            iterations      = 5,
+            commit = "abc1234",
+            solver = "FakeSolver",
+            benchmark_name = "fake_solve",
+            N = 42,
+            state_dim = 7,
+            control_dim = 3,
+            n_constraints = 100,
+            n_variables = 200,
+            iterations = 5,
             objective_value = 0.001,
             constraint_violation = 1e-8,
-            solver_status   = :Optimal,
-            solver_options  = Dict{Symbol,Any}(:max_iter => 5, :fidelity => 0.999),
-            runner          = "test",
+            solver_status = :Optimal,
+            solver_options = Dict{Symbol,Any}(:max_iter => 5, :fidelity => 0.999),
+            runner = "test",
         ) do
             # Simulate a solve that allocates
             v = zeros(10_000)
-            for _ in 1:100
+            for _ = 1:100
                 v .+= rand(10_000)
             end
             return nothing
@@ -393,22 +400,22 @@ using LinearAlgebra
         solver_state = Ref(0)
 
         result = benchmark_solve!(
-            package        = "TestPkg",
-            solver         = "PostSolveTest",
+            package = "TestPkg",
+            solver = "PostSolveTest",
             benchmark_name = "post_solve_test",
-            N              = 10,
-            state_dim      = 2,
-            control_dim    = 1,
-            n_constraints  = 20,
-            n_variables    = 30,
+            N = 10,
+            state_dim = 2,
+            control_dim = 1,
+            n_constraints = 20,
+            n_variables = 30,
             solver_options = Dict{Symbol,Any}(:max_iter => 42),
-            commit         = "abc1234",
-            post_solve     = function(_)
+            commit = "abc1234",
+            post_solve = function (_)
                 # post_solve runs AFTER the closure; access state written there
                 return (
-                    iterations      = solver_state[],
+                    iterations = solver_state[],
                     objective_value = 1e-6,
-                    solver_status   = :Optimal,
+                    solver_status = :Optimal,
                 )
             end,
         ) do
@@ -447,13 +454,10 @@ using LinearAlgebra
 
     @testset "per_op_benchmark" begin
         prob = _make_bilinear_prob()
-        (evaluator, Z_vec) = build_evaluator(prob; eval_hessian=true)
+        (evaluator, Z_vec) = build_evaluator(prob; eval_hessian = true)
 
         # Tiny budgets to keep CI fast
-        results = per_op_benchmark(
-            evaluator, Z_vec;
-            seconds=0.05, evals=1, samples=5,
-        )
+        results = per_op_benchmark(evaluator, Z_vec; seconds = 0.05, evals = 1, samples = 5)
 
         expected_keys = [
             :eval_objective,
@@ -472,11 +476,8 @@ using LinearAlgebra
         end
 
         # Without Hessian: key should be absent
-        (ev_nohess, Z2) = build_evaluator(prob; eval_hessian=false)
-        results2 = per_op_benchmark(
-            ev_nohess, Z2;
-            seconds=0.05, evals=1, samples=5,
-        )
+        (ev_nohess, Z2) = build_evaluator(prob; eval_hessian = false)
+        results2 = per_op_benchmark(ev_nohess, Z2; seconds = 0.05, evals = 1, samples = 5)
         @test !haskey(results2, :eval_hessian_lagrangian)
         @test haskey(results2, :eval_objective)
     end
@@ -831,15 +832,17 @@ using LinearAlgebra
             feas_tol = 1e-6,
         )
 
-        br_quantum   = BenchmarkResult(; kw..., convergence = crit)
-        br_dto       = BenchmarkResult(; kw...,
-                       convergence = ObjectiveConvergence(
-                           target_objective = 1.0,
-                           final_objective = 0.5,
-                           primal_infeasibility = 1e-8,
-                           feas_tol = 1e-6,
-                       ))
-        br_timing    = BenchmarkResult(; kw...)  # convergence === nothing
+        br_quantum = BenchmarkResult(; kw..., convergence = crit)
+        br_dto = BenchmarkResult(;
+            kw...,
+            convergence = ObjectiveConvergence(
+                target_objective = 1.0,
+                final_objective = 0.5,
+                primal_infeasibility = 1e-8,
+                feas_tol = 1e-6,
+            ),
+        )
+        br_timing = BenchmarkResult(; kw...)  # convergence === nothing
 
         dir = mktempdir()
         path = save_results(dir, "convergence_mix", [br_quantum, br_dto, br_timing])
@@ -882,17 +885,17 @@ using LinearAlgebra
         state = IpoptCapture()
         cb = ipopt_capture_callback(state)
         fake_state = (
-            alg_mod              = Int32(0),
-            iter_count           = Int32(7),
-            obj_value            = 3.14,
-            inf_pr               = 1.5e-5,
-            inf_du               = 2.0e-4,
-            mu                   = 0.1,
-            d_norm               = 0.5,
-            regularization_size  = 0.0,
-            alpha_du             = 1.0,
-            alpha_pr             = 1.0,
-            ls_trials            = Int32(2),
+            alg_mod = Int32(0),
+            iter_count = Int32(7),
+            obj_value = 3.14,
+            inf_pr = 1.5e-5,
+            inf_du = 2.0e-4,
+            mu = 0.1,
+            d_norm = 0.5,
+            regularization_size = 0.0,
+            alpha_du = 1.0,
+            alpha_pr = 1.0,
+            ls_trials = Int32(2),
         )
 
         @test cb(nothing, fake_state) === true
@@ -934,40 +937,50 @@ using LinearAlgebra
             n_threads = 1,
         )
 
-        br_quantum_pass = BenchmarkResult(; kw_common...,
+        br_quantum_pass = BenchmarkResult(;
+            kw_common...,
             benchmark_name = "x_gate",
             solver = "Ipopt",
             iterations = 15,
             wall_time_s = 1.2,
             convergence = InfidelityConvergence(
-                target_infidelity = 1e-4, final_infidelity = 5e-5,
-                primal_infeasibility = 1e-7, feas_tol = 1e-6,
+                target_infidelity = 1e-4,
+                final_infidelity = 5e-5,
+                primal_infeasibility = 1e-7,
+                feas_tol = 1e-6,
             ),
         )
 
-        br_quantum_fail_altissimo = BenchmarkResult(; kw_common...,
+        br_quantum_fail_altissimo = BenchmarkResult(;
+            kw_common...,
             benchmark_name = "x_gate",
             solver = "Altissimo",
             iterations = 100,
             wall_time_s = 2.5,
             convergence = InfidelityConvergence(
-                target_infidelity = 1e-4, final_infidelity = 5e-3,
-                primal_infeasibility = 1e-7, feas_tol = 1e-6,
+                target_infidelity = 1e-4,
+                final_infidelity = 5e-3,
+                primal_infeasibility = 1e-7,
+                feas_tol = 1e-6,
             ),
         )
 
-        br_dto_fail = BenchmarkResult(; kw_common...,
+        br_dto_fail = BenchmarkResult(;
+            kw_common...,
             benchmark_name = "cartpole",
             solver = "Ipopt",
             iterations = 200,
             wall_time_s = 10.0,
             convergence = ObjectiveConvergence(
-                target_objective = 0.1, final_objective = 0.5,
-                primal_infeasibility = 1e-7, feas_tol = 1e-6,
+                target_objective = 0.1,
+                final_objective = 0.5,
+                primal_infeasibility = 1e-7,
+                feas_tol = 1e-6,
             ),
         )
 
-        br_timing_only = BenchmarkResult(; kw_common...,
+        br_timing_only = BenchmarkResult(;
+            kw_common...,
             benchmark_name = "ignore_me",
             solver = "Ipopt",
             iterations = 1,
@@ -1010,13 +1023,17 @@ using LinearAlgebra
 
     @testset "benchmark_solve! threads convergence kwarg" begin
         crit = InfidelityConvergence(
-            target_infidelity = 1e-4, final_infidelity = 5e-5,
-            primal_infeasibility = 1e-7, feas_tol = 1e-6,
+            target_infidelity = 1e-4,
+            final_infidelity = 5e-5,
+            primal_infeasibility = 1e-7,
+            feas_tol = 1e-6,
         )
 
         # DTO-typed method
         prob = _make_bilinear_prob()
-        result_dto = benchmark_solve!(prob, IpoptOptions(max_iter=5, print_level=0);
+        result_dto = benchmark_solve!(
+            prob,
+            IpoptOptions(max_iter = 5, print_level = 0);
             benchmark_name = "bilinear_conv",
             runner = "test",
             convergence = crit,
@@ -1025,7 +1042,9 @@ using LinearAlgebra
         @test result_dto.convergence isa InfidelityConvergence
 
         # Omitting it still works → defaults to nothing.
-        result_dto_default = benchmark_solve!(prob, IpoptOptions(max_iter=5, print_level=0);
+        result_dto_default = benchmark_solve!(
+            prob,
+            IpoptOptions(max_iter = 5, print_level = 0);
             benchmark_name = "bilinear_no_conv",
             runner = "test",
         )
@@ -1033,23 +1052,29 @@ using LinearAlgebra
 
         # do-block form
         result_doblock = benchmark_solve!(
-            package        = "TestPkg",
-            solver         = "FakeSolver",
+            package = "TestPkg",
+            solver = "FakeSolver",
             benchmark_name = "fake_conv",
-            N = 10, state_dim = 4, control_dim = 2,
-            n_constraints = 80, n_variables = 100,
-            convergence    = crit,
+            N = 10,
+            state_dim = 4,
+            control_dim = 2,
+            n_constraints = 80,
+            n_variables = 100,
+            convergence = crit,
         ) do
             nothing
         end
         @test result_doblock.convergence === crit
 
         result_doblock_default = benchmark_solve!(
-            package        = "TestPkg",
-            solver         = "FakeSolver",
+            package = "TestPkg",
+            solver = "FakeSolver",
             benchmark_name = "fake_no_conv",
-            N = 10, state_dim = 4, control_dim = 2,
-            n_constraints = 80, n_variables = 100,
+            N = 10,
+            state_dim = 4,
+            control_dim = 2,
+            n_constraints = 80,
+            n_variables = 100,
         ) do
             nothing
         end

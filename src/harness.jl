@@ -20,7 +20,8 @@ function build_evaluator(
     prob::DirectTrajOpt.Problems.DirectTrajOptProblem;
     eval_hessian::Bool = true,
 )
-    evaluator = DirectTrajOpt.Solvers.Evaluator(prob; eval_hessian = eval_hessian, verbose = false)
+    evaluator =
+        DirectTrajOpt.Solvers.Evaluator(prob; eval_hessian = eval_hessian, verbose = false)
     traj = prob.trajectory
     Z_vec = vcat(collect(traj.datavec), collect(traj.global_data))
     return (evaluator, Z_vec)
@@ -37,10 +38,10 @@ function evaluator_dims(evaluator::DirectTrajOpt.Solvers.Evaluator)
     traj = evaluator.trajectory
     n_variables = traj.dim * traj.N + traj.global_dim
     return (
-        n_constraints      = evaluator.n_constraints,
-        n_variables        = n_variables,
+        n_constraints = evaluator.n_constraints,
+        n_variables = n_variables,
         n_jacobian_entries = length(evaluator.jacobian_structure),
-        n_hessian_entries  = length(evaluator.hessian_structure),
+        n_hessian_entries = length(evaluator.hessian_structure),
     )
 end
 
@@ -66,11 +67,11 @@ Control dim is the sum of all non-timestep control component dimensions.
 function problem_dims(prob::DirectTrajOptProblem)
     traj = prob.trajectory
     return (
-        N              = traj.N,
-        state_dim      = _infer_state_dim(prob),
-        control_dim    = _infer_control_dim(prob),
-        n_constraints  = _count_constraints(prob),
-        n_variables    = traj.dim * traj.N + traj.global_dim,
+        N = traj.N,
+        state_dim = _infer_state_dim(prob),
+        control_dim = _infer_control_dim(prob),
+        n_constraints = _count_constraints(prob),
+        n_variables = traj.dim * traj.N + traj.global_dim,
     )
 end
 
@@ -97,9 +98,9 @@ function evaluate_post_solve(prob::DirectTrajOptProblem)
     solver_status = constraint_violation < 1e-4 ? :Optimal : :Suboptimal
 
     return (
-        objective_value      = objective_value,
+        objective_value = objective_value,
         constraint_violation = constraint_violation,
-        solver_status        = solver_status,
+        solver_status = solver_status,
     )
 end
 
@@ -157,8 +158,8 @@ end
 function _count_constraints(prob::DirectTrajOptProblem)
     dynamics_dim = sum(integrator.dim for integrator in prob.integrators; init = 0)
     n_nonlinear = sum(
-        c.dim for c in prob.constraints
-        if c isa DirectTrajOpt.Constraints.AbstractNonlinearConstraint;
+        c.dim for c in prob.constraints if
+        c isa DirectTrajOpt.Constraints.AbstractNonlinearConstraint;
         init = 0,
     )
     return dynamics_dim + n_nonlinear
@@ -207,13 +208,13 @@ function _capture_solve_metrics(solve_fn::Function)
     # Clean up garbage so peak/heap deltas reflect this solve's work, not
     # leftover state from earlier code in the same process.
     GC.gc(true)
-    gc_before      = Base.gc_num()
-    rss_before     = Sys.maxrss()
-    live_before    = Base.gc_live_bytes()
+    gc_before = Base.gc_num()
+    rss_before = Sys.maxrss()
+    live_before = Base.gc_live_bytes()
 
     timed = @timed solve_fn()
 
-    rss_after      = Sys.maxrss()
+    rss_after = Sys.maxrss()
     gc_after_solve = Base.gc_num()
 
     # Full GC to measure heap retained by the solve (persistent state / leaks).
@@ -229,22 +230,24 @@ function _capture_solve_metrics(solve_fn::Function)
     oom_margin_bytes = Int(Sys.total_memory()) - Int(rss_after)
 
     return (
-        result                  = timed.value,
-        wall_time_s             = timed.time,
+        result = timed.value,
+        wall_time_s = timed.time,
         total_allocations_bytes = Int(timed.bytes),
-        total_allocs_count      = Int(timed.gcstats.malloc + timed.gcstats.poolalloc + timed.gcstats.bigalloc),
-        gc_time_ns              = Int(round(timed.gctime * 1e9)),
-        gc_count                = Int(gc_diff.pause),
-        gc_full_count           = Int(gc_diff.full_sweep),
+        total_allocs_count = Int(
+            timed.gcstats.malloc + timed.gcstats.poolalloc + timed.gcstats.bigalloc,
+        ),
+        gc_time_ns = Int(round(timed.gctime * 1e9)),
+        gc_count = Int(gc_diff.pause),
+        gc_full_count = Int(gc_diff.full_sweep),
         # Sys.maxrss() is monotonic over the process lifetime, so this delta
         # is a LOWER BOUND on the peak added by this solve. First solve in a
         # process gives the true peak; later solves give 0 unless they exceed
         # prior peaks. See schema.jl docstring.
-        peak_rss_delta_bytes    = Int(max(rss_after - rss_before, 0)),
+        peak_rss_delta_bytes = Int(max(rss_after - rss_before, 0)),
         # Retained Julia heap after a full post-solve GC. Signed — negative
         # means the solve freed more of the pre-existing heap than it kept.
-        live_heap_delta_bytes   = Int(live_after - live_before),
-        oom_margin_bytes        = oom_margin_bytes,
+        live_heap_delta_bytes = Int(live_after - live_before),
+        oom_margin_bytes = oom_margin_bytes,
     )
 end
 
@@ -288,35 +291,35 @@ function benchmark_solve!(
     post = evaluate_post_solve(prob)
 
     return BenchmarkResult(
-        package                = "DirectTrajOpt",
-        package_version        = _get_package_version("DirectTrajOpt"),
-        commit                 = _get_git_commit(),
-        benchmark_name         = benchmark_name,
-        N                      = dims.N,
-        state_dim              = dims.state_dim,
-        control_dim            = dims.control_dim,
-        n_constraints          = dims.n_constraints,
-        n_variables            = dims.n_variables,
-        wall_time_s            = metrics.wall_time_s,
-        iterations             = -1,  # solve! returns nothing; sentinel
-        objective_value        = post.objective_value,
-        constraint_violation   = post.constraint_violation,
-        solver_status          = post.solver_status,
-        solver                 = _solver_name(options),
+        package = "DirectTrajOpt",
+        package_version = _get_package_version("DirectTrajOpt"),
+        commit = _get_git_commit(),
+        benchmark_name = benchmark_name,
+        N = dims.N,
+        state_dim = dims.state_dim,
+        control_dim = dims.control_dim,
+        n_constraints = dims.n_constraints,
+        n_variables = dims.n_variables,
+        wall_time_s = metrics.wall_time_s,
+        iterations = -1,  # solve! returns nothing; sentinel
+        objective_value = post.objective_value,
+        constraint_violation = post.constraint_violation,
+        solver_status = post.solver_status,
+        solver = _solver_name(options),
         total_allocations_bytes = metrics.total_allocations_bytes,
-        total_allocs_count     = metrics.total_allocs_count,
-        gc_time_ns             = metrics.gc_time_ns,
-        gc_count               = metrics.gc_count,
-        gc_full_count          = metrics.gc_full_count,
-        peak_rss_delta_bytes   = metrics.peak_rss_delta_bytes,
-        live_heap_delta_bytes  = metrics.live_heap_delta_bytes,
-        oom_margin_bytes       = metrics.oom_margin_bytes,
-        solver_options         = opts_snapshot,
-        convergence            = convergence,
-        julia_version          = string(VERSION),
-        timestamp              = Dates.now(),
-        runner                 = runner,
-        n_threads              = Threads.nthreads(),
+        total_allocs_count = metrics.total_allocs_count,
+        gc_time_ns = metrics.gc_time_ns,
+        gc_count = metrics.gc_count,
+        gc_full_count = metrics.gc_full_count,
+        peak_rss_delta_bytes = metrics.peak_rss_delta_bytes,
+        live_heap_delta_bytes = metrics.live_heap_delta_bytes,
+        oom_margin_bytes = metrics.oom_margin_bytes,
+        solver_options = opts_snapshot,
+        convergence = convergence,
+        julia_version = string(VERSION),
+        timestamp = Dates.now(),
+        runner = runner,
+        n_threads = Threads.nthreads(),
     )
 end
 
@@ -385,43 +388,44 @@ function benchmark_solve!(
     if post_solve !== nothing
         override = post_solve(metrics.result)
         if override !== nothing
-            iterations           = get(override, :iterations, iterations)
-            objective_value      = get(override, :objective_value, objective_value)
-            constraint_violation = get(override, :constraint_violation, constraint_violation)
-            solver_status        = get(override, :solver_status, solver_status)
+            iterations = get(override, :iterations, iterations)
+            objective_value = get(override, :objective_value, objective_value)
+            constraint_violation =
+                get(override, :constraint_violation, constraint_violation)
+            solver_status = get(override, :solver_status, solver_status)
         end
     end
 
     return BenchmarkResult(
-        package                 = package,
-        package_version         = package_version,
-        commit                  = commit,
-        benchmark_name          = benchmark_name,
-        N                       = N,
-        state_dim               = state_dim,
-        control_dim             = control_dim,
-        n_constraints           = n_constraints,
-        n_variables             = n_variables,
-        wall_time_s             = metrics.wall_time_s,
-        iterations              = iterations,
-        objective_value         = objective_value,
-        constraint_violation    = constraint_violation,
-        solver_status           = solver_status,
-        solver                  = solver,
+        package = package,
+        package_version = package_version,
+        commit = commit,
+        benchmark_name = benchmark_name,
+        N = N,
+        state_dim = state_dim,
+        control_dim = control_dim,
+        n_constraints = n_constraints,
+        n_variables = n_variables,
+        wall_time_s = metrics.wall_time_s,
+        iterations = iterations,
+        objective_value = objective_value,
+        constraint_violation = constraint_violation,
+        solver_status = solver_status,
+        solver = solver,
         total_allocations_bytes = metrics.total_allocations_bytes,
-        total_allocs_count      = metrics.total_allocs_count,
-        gc_time_ns              = metrics.gc_time_ns,
-        gc_count                = metrics.gc_count,
-        gc_full_count           = metrics.gc_full_count,
-        peak_rss_delta_bytes    = metrics.peak_rss_delta_bytes,
-        live_heap_delta_bytes   = metrics.live_heap_delta_bytes,
-        oom_margin_bytes        = metrics.oom_margin_bytes,
-        solver_options          = solver_options,
-        convergence             = convergence,
-        julia_version           = string(VERSION),
-        timestamp               = Dates.now(),
-        runner                  = runner,
-        n_threads               = Threads.nthreads(),
+        total_allocs_count = metrics.total_allocs_count,
+        gc_time_ns = metrics.gc_time_ns,
+        gc_count = metrics.gc_count,
+        gc_full_count = metrics.gc_full_count,
+        peak_rss_delta_bytes = metrics.peak_rss_delta_bytes,
+        live_heap_delta_bytes = metrics.live_heap_delta_bytes,
+        oom_margin_bytes = metrics.oom_margin_bytes,
+        solver_options = solver_options,
+        convergence = convergence,
+        julia_version = string(VERSION),
+        timestamp = Dates.now(),
+        runner = runner,
+        n_threads = Threads.nthreads(),
     )
 end
 
@@ -436,10 +440,10 @@ Convert a `BenchmarkTools.Trial` into an `EvalBenchmark`.
 """
 function trial_to_eval_benchmark(trial::BenchmarkTools.Trial)::EvalBenchmark
     return EvalBenchmark(
-        times_ns    = Float64.(trial.times),
-        gctimes_ns  = Float64.(trial.gctimes),
+        times_ns = Float64.(trial.times),
+        gctimes_ns = Float64.(trial.gctimes),
         memory_bytes = Int(trial.memory),
-        allocs       = Int(trial.allocs),
+        allocs = Int(trial.allocs),
     )
 end
 
@@ -478,7 +482,7 @@ function per_op_benchmark(
 
     function _set_params!(b)
         b.params.seconds = seconds
-        b.params.evals   = evals
+        b.params.evals = evals
         b.params.samples = samples
         return b
     end
@@ -491,7 +495,8 @@ function per_op_benchmark(
     results[:eval_objective] = trial_to_eval_benchmark(BenchmarkTools.run(bench_obj))
 
     # Objective gradient
-    bench_grad = BenchmarkTools.@benchmarkable MOI.eval_objective_gradient($evaluator, $g, $Z_vec)
+    bench_grad =
+        BenchmarkTools.@benchmarkable MOI.eval_objective_gradient($evaluator, $g, $Z_vec)
     _set_params!(bench_grad)
     results[:eval_objective_gradient] =
         trial_to_eval_benchmark(BenchmarkTools.run(bench_grad))
@@ -504,7 +509,11 @@ function per_op_benchmark(
     # Constraint Jacobian
     n_jac = length(evaluator.jacobian_structure)
     jac_buf = zeros(n_jac)
-    bench_jac = BenchmarkTools.@benchmarkable MOI.eval_constraint_jacobian($evaluator, $jac_buf, $Z_vec)
+    bench_jac = BenchmarkTools.@benchmarkable MOI.eval_constraint_jacobian(
+        $evaluator,
+        $jac_buf,
+        $Z_vec,
+    )
     _set_params!(bench_jac)
     results[:eval_constraint_jacobian] =
         trial_to_eval_benchmark(BenchmarkTools.run(bench_jac))
@@ -516,7 +525,11 @@ function per_op_benchmark(
         σ = 1.0
         μ = zeros(n_con)
         bench_hess = BenchmarkTools.@benchmarkable MOI.eval_hessian_lagrangian(
-            $evaluator, $hess_buf, $Z_vec, $σ, $μ
+            $evaluator,
+            $hess_buf,
+            $Z_vec,
+            $σ,
+            $μ,
         )
         _set_params!(bench_hess)
         results[:eval_hessian_lagrangian] =

@@ -31,11 +31,11 @@ to compose with other callbacks via
 use [`ipopt_capture`](@ref) instead.
 """
 function ipopt_capture_callback(state::IpoptCapture)
-    return function(_optimizer, optimizer_state; kwargs...)
+    return function (_optimizer, optimizer_state; kwargs...)
         state.iter_count = Int(optimizer_state.iter_count)
-        state.inf_pr     = Float64(optimizer_state.inf_pr)
-        state.inf_du     = Float64(optimizer_state.inf_du)
-        state.objective  = Float64(optimizer_state.obj_value)
+        state.inf_pr = Float64(optimizer_state.inf_pr)
+        state.inf_du = Float64(optimizer_state.inf_du)
+        state.objective = Float64(optimizer_state.obj_value)
         return true
     end
 end
