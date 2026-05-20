@@ -5,6 +5,7 @@ include("storage.jl")
 include("harness.jl")
 include("extractors.jl")
 include("report.jl")
+include("analyze.jl")
 
 export EvalBenchmark
 export BenchmarkResult
@@ -43,5 +44,11 @@ export ipopt_capture
 export ipopt_capture_callback
 export ipopt_iterations
 export ipopt_primal_infeasibility
+
+export AllocFrameSummary
+export top_alloc_types
+export top_alloc_frames
+export top_alloc_leaves
+export report_alloc_profile
 
 end
