@@ -47,14 +47,17 @@ function compare_convergence(results::Vector{BenchmarkResult})::Vector{Convergen
     for r in results
         crit = r.convergence
         crit === nothing && continue
-        push!(rows, ConvergenceRow(
-            r.benchmark_name,
-            r.solver,
-            converged(crit),
-            r.iterations,
-            r.wall_time_s,
-            crit,
-        ))
+        push!(
+            rows,
+            ConvergenceRow(
+                r.benchmark_name,
+                r.solver,
+                converged(crit),
+                r.iterations,
+                r.wall_time_s,
+                crit,
+            ),
+        )
     end
     return rows
 end
@@ -84,7 +87,7 @@ Vector of `ComparisonRow` structs, one per matched benchmark.
 function compare_results(
     baseline::Vector{BenchmarkResult},
     current::Vector{BenchmarkResult};
-    regression_threshold=10.0,
+    regression_threshold = 10.0,
 )::Vector{ComparisonRow}
 
     rows = ComparisonRow[]
@@ -128,8 +131,9 @@ function compare_results(
         end
 
         # Flag regression if either metric increased beyond threshold
-        has_regression = (wall_time_pct_change > regression_threshold) ||
-                         (alloc_bytes_pct_change > regression_threshold)
+        has_regression =
+            (wall_time_pct_change > regression_threshold) ||
+            (alloc_bytes_pct_change > regression_threshold)
 
         row = ComparisonRow(
             curr.benchmark_name,

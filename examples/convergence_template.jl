@@ -18,8 +18,10 @@ using DirectTrajOpt
 # ---------------------------------------------------------------------------- #
 # Replace this with your real problem builder.
 function build_my_problem()
-    error("Replace `build_my_problem()` with the builder for the problem you ",
-          "want to benchmark (e.g. a Piccolo `UnitarySmoothPulseProblem`).")
+    error(
+        "Replace `build_my_problem()` with the builder for the problem you ",
+        "want to benchmark (e.g. a Piccolo `UnitarySmoothPulseProblem`).",
+    )
 end
 
 post_solve_fidelity(prob) = error("Return `1 - F(prob)` after the solve.")
@@ -34,15 +36,17 @@ function bench_ipopt()
 
     state, cb = ipopt_capture()
 
-    result = benchmark_solve!(prob, opts;
+    result = benchmark_solve!(
+        prob,
+        opts;
         benchmark_name = "x_gate_ipopt",
-        runner         = "self_hosted",
-        callback       = cb,
-        convergence    = InfidelityConvergence(
-            target_infidelity    = 1e-4,
-            final_infidelity     = post_solve_fidelity(prob),
+        runner = "self_hosted",
+        callback = cb,
+        convergence = InfidelityConvergence(
+            target_infidelity = 1e-4,
+            final_infidelity = post_solve_fidelity(prob),
             primal_infeasibility = ipopt_primal_infeasibility(state),
-            feas_tol             = 1e-6,
+            feas_tol = 1e-6,
         ),
     )
 
@@ -63,15 +67,15 @@ function bench_external()
     # opts = MySolver.Options(...)
 
     result = benchmark_solve!(
-        package        = "MyConsumerRepo",
-        solver         = "MySolver",
+        package = "MyConsumerRepo",
+        solver = "MySolver",
         benchmark_name = "x_gate_mysolver",
-        N              = prob.trajectory.N,
-        state_dim      = prob.trajectory.dims[:x],
-        control_dim    = prob.trajectory.dims[:u],
-        n_constraints  = 0,                  # fill in from your problem
-        n_variables    = 0,
-        runner         = "self_hosted",
+        N = prob.trajectory.N,
+        state_dim = prob.trajectory.dims[:x],
+        control_dim = prob.trajectory.dims[:u],
+        n_constraints = 0,                  # fill in from your problem
+        n_variables = 0,
+        runner = "self_hosted",
     ) do
         # Replace with: MySolver.solve!(prob, opts) — must return whatever the
         # solver returns; the post_solve closure (below) reads it.

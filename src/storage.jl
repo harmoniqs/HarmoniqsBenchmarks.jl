@@ -6,7 +6,11 @@ using JLD2
 Save a vector of `BenchmarkResult` to `dir/name_commit.jld2`.
 Returns the path of the saved file.
 """
-function save_results(dir::AbstractString, name::AbstractString, results::Vector{BenchmarkResult})::String
+function save_results(
+    dir::AbstractString,
+    name::AbstractString,
+    results::Vector{BenchmarkResult},
+)::String
     mkpath(dir)
     # Use commit from first result (all should share the same commit in a benchmark run)
     commit = isempty(results) ? "unknown" : results[1].commit
@@ -33,7 +37,11 @@ end
 Save a `MicroBenchmarkResult` to `dir/name_commit.jld2`.
 Returns the path of the saved file.
 """
-function save_micro_results(dir::AbstractString, name::AbstractString, result::MicroBenchmarkResult)::String
+function save_micro_results(
+    dir::AbstractString,
+    name::AbstractString,
+    result::MicroBenchmarkResult,
+)::String
     mkpath(dir)
     filename = "$(name)_$(result.commit).jld2"
     path = joinpath(dir, filename)
@@ -59,7 +67,11 @@ Save an `AllocProfileResult` to `dir/name_commit_allocs.jld2` (a file distinct
 from `save_results`/`save_micro_results` so allocation artifacts do not bloat
 the main benchmark JLD2). Returns the path of the saved file.
 """
-function save_alloc_profile(dir::AbstractString, name::AbstractString, profile::AllocProfileResult)::String
+function save_alloc_profile(
+    dir::AbstractString,
+    name::AbstractString,
+    profile::AllocProfileResult,
+)::String
     mkpath(dir)
     filename = "$(name)_$(profile.commit)_allocs.jld2"
     path = joinpath(dir, filename)
