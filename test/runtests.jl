@@ -1021,6 +1021,78 @@ using LinearAlgebra
         @test isempty(compare_convergence([br_timing_only]))
     end
 
+    @testset "analyze: top_alloc_types / leaves / frames" begin
+        samples = [
+            AllocSample(
+                1024,
+                "Vector{Float64}",
+                ["my_solver/hot_loop.jl:42", "Profile.Allocs", "boot.jl:10"],
+            ),
+            AllocSample(
+                2048,
+                "Vector{Float64}",
+                ["my_solver/hot_loop.jl:42", "benchmark_memory!", "boot.jl:10"],
+            ),
+            AllocSample(
+                512,
+                "Dict{Symbol,Any}",
+                ["my_solver/cold.jl:5", "HarmoniqsBenchmarks/harness.jl:1", "_start at "],
+            ),
+            AllocSample(256, "Profile.Allocs.RawAlloc", ["gc-alloc-profiler"]),  # noise sample, must be filtered
+        ]
+        profile = AllocProfileResult(
+            "test",                                       # package
+            "test",                                       # solver
+            "analyze_smoke",                              # benchmark_name
+            "abc1234",                                    # commit
+            1,
+            1,
+            1,                                      # N, state_dim, control_dim
+            0.5,                                          # sample_rate
+            samples,
+            sum(s.size_bytes for s in samples),           # total_bytes
+            length(samples),                              # total_count
+            string(VERSION),                              # julia_version
+            now(),                                        # timestamp
+            "test",                                       # runner
+        )
+
+        types = top_alloc_types(profile)
+        # Noise type is filtered.
+        @test all(r -> !occursin("Profile.Allocs", r.name), types)
+        # Vector{Float64} is the largest bucket (1024+2048 bytes, scaled ×2).
+        top = types[1]
+        @test top.name == "Vector{Float64}"
+        @test top.bytes == round(Int, (1024 + 2048) * 2)  # scaled by 1/sample_rate
+        @test top.count == 4  # 2 samples scaled ×2
+
+        # `scale=false` returns raw counts/bytes.
+        types_raw = top_alloc_types(profile; scale = false)
+        @test types_raw[1].bytes == 1024 + 2048
+
+        leaves = top_alloc_leaves(profile)
+        # Leaf for the Vector{Float64} samples is hot_loop.jl:42 (after
+        # filtering Profile.Allocs and benchmark_memory! wrappers).
+        @test any(r -> occursin("hot_loop.jl:42", r.name), leaves)
+
+        frames = top_alloc_frames(profile)
+        # HBJ wrapper frames are dropped by default.
+        @test all(r -> !occursin("benchmark_memory!", r.name), frames)
+        @test all(r -> !occursin("HarmoniqsBenchmarks/harness.jl", r.name), frames)
+
+        # extra_noise kwarg drops additional patterns.
+        frames_no_cold = top_alloc_frames(profile; extra_noise = ["cold.jl"])
+        @test all(r -> !occursin("cold.jl", r.name), frames_no_cold)
+
+        # report_alloc_profile prints without error.
+        io = IOBuffer()
+        report_alloc_profile(profile; io = io, k_types = 5, k_leaves = 5, k_frames = 5)
+        out = String(take!(io))
+        @test occursin("Alloc profile", out)
+        @test occursin("Vector{Float64}", out)
+        @test occursin("hot_loop.jl:42", out)
+    end
+
     @testset "benchmark_solve! threads convergence kwarg" begin
         crit = InfidelityConvergence(
             target_infidelity = 1e-4,
