@@ -30,6 +30,10 @@ struct ConvergenceRow
     solver::String
     converged::Bool
     iterations::Int
+    # Per-backend iteration breakdown (e.g. Ipopt `:iterations`, Altissimo
+    # `:outer`/`:inner`). Empty when the backend exposes no counts. `iterations`
+    # above remains the single comparable headline count.
+    iteration_counts::Dict{Symbol,Int}
     wall_time_s::Float64
     criterion::ConvergenceCriterion
 end
@@ -54,6 +58,7 @@ function compare_convergence(results::Vector{BenchmarkResult})::Vector{Convergen
                 r.solver,
                 converged(crit),
                 r.iterations,
+                r.iteration_counts,
                 r.wall_time_s,
                 crit,
             ),
