@@ -170,6 +170,16 @@ struct BenchmarkResult
     oom_margin_bytes::Int
     # Options
     solver_options::Dict{Symbol,Any}
+    # Per-backend iteration breakdown. Solver iteration structures are NOT
+    # apples-to-apples, so each backend records its own keys rather than forcing
+    # a shared meaning onto the scalar `iterations` above:
+    #   - Ipopt / MadNLP (interior-point): Dict(:iterations => n)
+    #   - Altissimo (augmented-Lagrangian): Dict(:outer => n_outer, :inner => n_inner)
+    # The scalar `iterations` stays as the single comparable "headline" count
+    # (outer iterations for AL methods). Empty Dict when the backend exposes no
+    # counts. Consumers should render each key as its own series — never compare
+    # an :outer count against an interior-point :iterations count.
+    iteration_counts::Dict{Symbol,Int}
     # Convergence — optional; nothing for timing-only benchmarks.
     # When set, identifies whether the solve met its problem-specific success
     # bar (target_infidelity / target_objective) AND satisfied the dynamics
@@ -207,6 +217,7 @@ function BenchmarkResult(;
     live_heap_delta_bytes::Int = 0,
     oom_margin_bytes::Int = 0,
     solver_options::Dict{Symbol,Any},
+    iteration_counts::Dict{Symbol,Int} = Dict{Symbol,Int}(),
     convergence::Union{Nothing,ConvergenceCriterion} = nothing,
     julia_version::String,
     timestamp::DateTime,
@@ -238,6 +249,7 @@ function BenchmarkResult(;
         live_heap_delta_bytes,
         oom_margin_bytes,
         solver_options,
+        iteration_counts,
         convergence,
         julia_version,
         timestamp,

@@ -1021,6 +1021,108 @@ using LinearAlgebra
         @test isempty(compare_convergence([br_timing_only]))
     end
 
+    @testset "iteration_counts (per-backend)" begin
+        common = (
+            package = "HarmoniqsBenchmarks",
+            package_version = "0.2.0",
+            commit = "itercnt",
+            N = 10,
+            state_dim = 4,
+            control_dim = 2,
+            n_constraints = 80,
+            n_variables = 100,
+            wall_time_s = 1.0,
+            objective_value = 0.0,
+            constraint_violation = 1e-8,
+            solver_status = :Optimal,
+            total_allocations_bytes = 0,
+            total_allocs_count = 0,
+            gc_time_ns = 0,
+            gc_count = 0,
+            gc_full_count = 0,
+            solver_options = Dict{Symbol,Any}(),
+            julia_version = string(VERSION),
+            timestamp = now(),
+            runner = "test",
+            n_threads = 1,
+        )
+
+        # Defaults to an empty Dict when the backend exposes no counts.
+        r_default = BenchmarkResult(;
+            common...,
+            benchmark_name = "default",
+            solver = "Ipopt",
+            iterations = 15,
+        )
+        @test r_default.iteration_counts == Dict{Symbol,Int}()
+
+        # Interior-point backend: single :iterations key.
+        r_ipopt = BenchmarkResult(;
+            common...,
+            benchmark_name = "x_gate",
+            solver = "Ipopt",
+            iterations = 200,
+            iteration_counts = Dict(:iterations => 200),
+        )
+        @test r_ipopt.iteration_counts[:iterations] == 200
+
+        # Augmented-Lagrangian backend: :outer + :inner; scalar `iterations`
+        # carries the outer count as the headline.
+        r_alt = BenchmarkResult(;
+            common...,
+            benchmark_name = "x_gate",
+            solver = "Altissimo",
+            iterations = 30,
+            iteration_counts = Dict(:outer => 30, :inner => 2847),
+            convergence = InfidelityConvergence(
+                target_infidelity = 1e-3,
+                final_infidelity = 4e-5,
+                primal_infeasibility = 6e-6,
+                feas_tol = 1e-4,
+            ),
+        )
+        @test r_alt.iteration_counts[:outer] == 30
+        @test r_alt.iteration_counts[:inner] == 2847
+        @test r_alt.iterations == 30  # headline == outer
+
+        # compare_convergence surfaces the per-backend breakdown on the row.
+        row = only(compare_convergence([r_alt]))
+        @test row.iteration_counts == Dict(:outer => 30, :inner => 2847)
+        @test row.iterations == 30
+
+        # JLD2 round-trip preserves the dict.
+        mktempdir() do dir
+            save_results(dir, "itercnt", [r_alt])
+            loaded = only(load_results(joinpath(dir, "itercnt_itercnt.jld2")))
+            @test loaded.iteration_counts == Dict(:outer => 30, :inner => 2847)
+        end
+
+        # do-block benchmark_solve!: post_solve can return iteration_counts.
+        state = Ref((0, 0))
+        r_doblock = benchmark_solve!(
+            package = "TestPkg",
+            solver = "Altissimo",
+            benchmark_name = "doblock_iters",
+            N = 10,
+            state_dim = 2,
+            control_dim = 1,
+            n_constraints = 20,
+            n_variables = 30,
+            post_solve = function (_)
+                (outer, inner) = state[]
+                return (;
+                    iterations = outer,
+                    iteration_counts = Dict(:outer => outer, :inner => inner),
+                )
+            end,
+        ) do
+            state[] = (12, 480)
+            return nothing
+        end
+        @test r_doblock.iterations == 12
+        @test r_doblock.iteration_counts == Dict(:outer => 12, :inner => 480)
+    end
+
     @testset "analyze: top_alloc_types / leaves / frames" begin
         samples = [
             AllocSample(

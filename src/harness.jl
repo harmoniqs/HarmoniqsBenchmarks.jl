@@ -375,6 +375,7 @@ function benchmark_solve!(
     constraint_violation::Float64 = NaN,
     solver_status::Symbol = :Unknown,
     solver_options::Dict{Symbol,Any} = Dict{Symbol,Any}(),
+    iteration_counts::Dict{Symbol,Int} = Dict{Symbol,Int}(),
     runner::String = "local",
     convergence::Union{Nothing,ConvergenceCriterion} = nothing,
     post_solve::Union{Nothing,Function} = nothing,
@@ -382,13 +383,15 @@ function benchmark_solve!(
     metrics = _capture_solve_metrics(solve_fn)
 
     # If a post_solve closure is provided, call it with the solve return value
-    # and let it override post-solve fields (iterations, objective_value,
-    # constraint_violation, solver_status). It may return a NamedTuple with
-    # any subset of those keys.
+    # and let it override post-solve fields (iterations, iteration_counts,
+    # objective_value, constraint_violation, solver_status). It may return a
+    # NamedTuple with any subset of those keys — e.g. an augmented-Lagrangian
+    # backend returns `(; iterations=n_outer, iteration_counts=Dict(:outer=>…, :inner=>…))`.
     if post_solve !== nothing
         override = post_solve(metrics.result)
         if override !== nothing
             iterations = get(override, :iterations, iterations)
+            iteration_counts = get(override, :iteration_counts, iteration_counts)
             objective_value = get(override, :objective_value, objective_value)
             constraint_violation =
                 get(override, :constraint_violation, constraint_violation)
@@ -421,6 +424,7 @@ function benchmark_solve!(
         live_heap_delta_bytes = metrics.live_heap_delta_bytes,
         oom_margin_bytes = metrics.oom_margin_bytes,
         solver_options = solver_options,
+        iteration_counts = iteration_counts,
         convergence = convergence,
         julia_version = string(VERSION),
         timestamp = Dates.now(),
