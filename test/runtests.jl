@@ -178,6 +178,163 @@ using LinearAlgebra
         end
     end
 
+    @testset "GPU device-memory fields (schema + defaults)" begin
+        kw = (
+            package = "Piccolissimo",
+            package_version = "0.3.0",
+            commit = "gpu0",
+            benchmark_name = "chain_x_gpu",
+            N = 100,
+            state_dim = 4,
+            control_dim = 2,
+            n_constraints = 50,
+            n_variables = 200,
+            wall_time_s = 1.23,
+            iterations = 30,
+            objective_value = 0.001,
+            constraint_violation = 1e-8,
+            solver_status = :Optimal,
+            solver = "Altissimo",
+            total_allocations_bytes = 1_000_000,
+            total_allocs_count = 5000,
+            gc_time_ns = 100_000,
+            gc_count = 3,
+            gc_full_count = 1,
+            solver_options = Dict{Symbol,Any}(:max_iter => 100),
+            julia_version = "1.12.0",
+            timestamp = DateTime(2026, 7, 1),
+            runner = "ci",
+            n_threads = 8,
+        )
+
+        # Omitted ⇒ default to nothing ("device axis not measured"), so CPU-arm
+        # results are unaffected.
+        br_cpu = BenchmarkResult(; kw...)
+        @test br_cpu.gpu_allocations_bytes === nothing
+        @test br_cpu.gpu_live_bytes === nothing
+
+        # A concrete 0 is distinct from `nothing`: measured, and the delta was 0.
+        br_zero = BenchmarkResult(; kw..., gpu_allocations_bytes = 0, gpu_live_bytes = 0)
+        @test br_zero.gpu_allocations_bytes == 0
+        @test br_zero.gpu_live_bytes == 0
+
+        # GPU arm carries real device-memory values.
+        br_gpu = BenchmarkResult(;
+            kw...,
+            gpu_allocations_bytes = 4_294_967_296,
+            gpu_live_bytes = 1_073_741_824,
+        )
+        @test br_gpu.gpu_allocations_bytes == 4_294_967_296
+        @test br_gpu.gpu_live_bytes == 1_073_741_824
+    end
+
+    @testset "GPU device-memory fields: JLD2 round-trip" begin
+        br = BenchmarkResult(
+            package = "Piccolissimo",
+            package_version = "0.3.0",
+            commit = "gpurt",
+            benchmark_name = "chain_x_gpu_roundtrip",
+            N = 75,
+            state_dim = 3,
+            control_dim = 1,
+            n_constraints = 40,
+            n_variables = 120,
+            wall_time_s = 2.5,
+            iterations = 50,
+            objective_value = 1e-4,
+            constraint_violation = 1e-9,
+            solver_status = :Optimal,
+            solver = "Altissimo",
+            total_allocations_bytes = 500_000,
+            total_allocs_count = 2500,
+            gc_time_ns = 50_000,
+            gc_count = 2,
+            gc_full_count = 0,
+            gpu_allocations_bytes = 8_589_934_592,
+            gpu_live_bytes = 2_147_483_648,
+            solver_options = Dict{Symbol,Any}(:tol => 1e-8),
+            julia_version = "1.12.0",
+            timestamp = DateTime(2026, 7, 1, 10, 30, 0),
+            runner = "ci",
+            n_threads = 8,
+        )
+
+        mktempdir() do dir
+            path = save_results(dir, "gpu_roundtrip", [br])
+            loaded = load_results(path)
+            @test loaded isa Vector{BenchmarkResult}
+            r = loaded[1]
+            @test r.gpu_allocations_bytes == 8_589_934_592
+            @test r.gpu_live_bytes == 2_147_483_648
+
+            # A result with defaulted (nothing) GPU fields round-trips too.
+            br_cpu = BenchmarkResult(
+                package = "DirectTrajOpt",
+                package_version = "0.9.0",
+                commit = "cpurt",
+                benchmark_name = "chain_x_cpu_roundtrip",
+                N = 10,
+                state_dim = 2,
+                control_dim = 1,
+                n_constraints = 20,
+                n_variables = 30,
+                wall_time_s = 0.5,
+                iterations = 5,
+                objective_value = 0.1,
+                constraint_violation = 1e-8,
+                solver_status = :Optimal,
+                solver = "Ipopt",
+                total_allocations_bytes = 100,
+                total_allocs_count = 10,
+                gc_time_ns = 0,
+                gc_count = 0,
+                gc_full_count = 0,
+                solver_options = Dict{Symbol,Any}(),
+                julia_version = "1.12.0",
+                timestamp = DateTime(2026, 7, 1),
+                runner = "ci",
+                n_threads = 1,
+            )
+            path2 = save_results(dir, "cpu_roundtrip", [br_cpu])
+            r2 = load_results(path2)[1]
+            @test r2.gpu_allocations_bytes === nothing
+            @test r2.gpu_live_bytes === nothing
+        end
+    end
+
+    @testset "Backward-compat: pre-GPU-fields fixture still loads" begin
+        # `test/fixtures/pre_gpu_fields_v1_pregpu0.jld2` was serialized with the
+        # BenchmarkResult schema BEFORE the GPU device-memory fields existed.
+        # It must still load as a real Vector{BenchmarkResult}, with the new
+        # fields defaulted to `nothing`. This is the hard invariant: no committed
+        # baseline may ever fail to load after an additive schema change.
+        fixture = joinpath(@__DIR__, "fixtures", "pre_gpu_fields_v1_pregpu0.jld2")
+        @test isfile(fixture)
+
+        loaded = load_results(fixture)
+        @test loaded isa Vector{BenchmarkResult}
+        @test length(loaded) == 1
+        r = loaded[1]
+        @test r isa BenchmarkResult
+
+        # Pre-existing fields survive the upgrade unchanged.
+        @test r.benchmark_name == "chain_x_pre_gpu_fields"
+        @test r.package == "DirectTrajOpt"
+        @test r.solver == "Altissimo"
+        @test r.total_allocations_bytes == 1_000_000
+        @test r.peak_rss_delta_bytes == 2048
+        @test r.live_heap_delta_bytes == -512
+        @test r.oom_margin_bytes == 999
+        @test r.iteration_counts == Dict(:outer => 30, :inner => 900)
+        @test r.convergence isa InfidelityConvergence
+        @test converged(r.convergence) == true
+        @test r.timestamp == DateTime(2026, 7, 1, 12, 0, 0)
+
+        # The newly-added fields default cleanly for pre-change data.
+        @test r.gpu_allocations_bytes === nothing
+        @test r.gpu_live_bytes === nothing
+    end
+
     # ------------------------------------------------------------------ #
     # Harness tests (Tasks 4–6)
     # ------------------------------------------------------------------ #

@@ -1,5 +1,66 @@
 using JLD2
 
+# ------------------------------------------------------------------ #
+# Backward-compatibility upgrade shim for BenchmarkResult
+# ------------------------------------------------------------------ #
+# When the in-memory `BenchmarkResult` struct gains fields that a committed
+# JLD2 blob was written without, JLD2 cannot map the on-disk layout onto the
+# current type and hands back a `JLD2.ReconstructedMutable{:BenchmarkResult}`
+# (a field-name/-value bag) instead of a real `BenchmarkResult`. `load_results`
+# then tries to `convert` that bag into `Vector{BenchmarkResult}` and fails.
+#
+# This `convert` method is that upgrade path: it reads each field the old blob
+# does carry and defaults any field the blob lacks. Concretely it lets any
+# result serialized before the GPU device-memory fields existed
+# (`gpu_allocations_bytes`, `gpu_live_bytes`) load with those fields defaulted
+# to `nothing` ("device axis not measured"). It is written generically over the
+# reconstructed field set so it also tolerates future additive schema changes.
+
+# Read property `name` off a reconstructed bag if present, else `default`.
+_rc_get(rc, name::Symbol, default) =
+    name in propertynames(rc) ? getproperty(rc, name) : default
+
+function Base.convert(
+    ::Type{BenchmarkResult},
+    rc::JLD2.ReconstructedMutable{:BenchmarkResult},
+)
+    return BenchmarkResult(;
+        package = rc.package,
+        package_version = rc.package_version,
+        commit = rc.commit,
+        benchmark_name = rc.benchmark_name,
+        N = rc.N,
+        state_dim = rc.state_dim,
+        control_dim = rc.control_dim,
+        n_constraints = rc.n_constraints,
+        n_variables = rc.n_variables,
+        wall_time_s = rc.wall_time_s,
+        iterations = rc.iterations,
+        objective_value = rc.objective_value,
+        constraint_violation = rc.constraint_violation,
+        solver_status = rc.solver_status,
+        solver = rc.solver,
+        total_allocations_bytes = rc.total_allocations_bytes,
+        total_allocs_count = rc.total_allocs_count,
+        gc_time_ns = rc.gc_time_ns,
+        gc_count = rc.gc_count,
+        gc_full_count = rc.gc_full_count,
+        # Optional/defaulted fields — tolerate blobs predating each of them.
+        peak_rss_delta_bytes = _rc_get(rc, :peak_rss_delta_bytes, 0),
+        live_heap_delta_bytes = _rc_get(rc, :live_heap_delta_bytes, 0),
+        oom_margin_bytes = _rc_get(rc, :oom_margin_bytes, 0),
+        gpu_allocations_bytes = _rc_get(rc, :gpu_allocations_bytes, nothing),
+        gpu_live_bytes = _rc_get(rc, :gpu_live_bytes, nothing),
+        solver_options = rc.solver_options,
+        iteration_counts = _rc_get(rc, :iteration_counts, Dict{Symbol,Int}()),
+        convergence = _rc_get(rc, :convergence, nothing),
+        julia_version = rc.julia_version,
+        timestamp = rc.timestamp,
+        runner = rc.runner,
+        n_threads = rc.n_threads,
+    )
+end
+
 """
     save_results(dir, name, results::Vector{BenchmarkResult}) -> String
 

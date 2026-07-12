@@ -168,6 +168,18 @@ struct BenchmarkResult
     # peak_rss_delta_bytes when triaging GPU-bound benchmarks that exhibit
     # unexpected host-side pressure.
     oom_margin_bytes::Int
+    # GPU device-memory deltas across the solve. Optional — `nothing` means the
+    # device axis was not measured for this result (CPU-arm solves, and any
+    # result serialized before these fields existed, deserialize as `nothing`).
+    # A concrete `0` is distinct: it means the device WAS measured and the delta
+    # was zero. Field names mirror the host `total_allocations_bytes` convention.
+    # gpu_allocations_bytes: cumulative device allocation over the timed solve
+    #   (the deterministic GPU analogue of host allocations). Populated by the
+    #   GPU-arms slice (Piccolissimo #254); peak-device sampling is out of scope.
+    # gpu_live_bytes: post-solve live device bytes (device analogue of
+    #   `live_heap_delta_bytes`'s retained-heap intent).
+    gpu_allocations_bytes::Union{Nothing,Int}
+    gpu_live_bytes::Union{Nothing,Int}
     # Options
     solver_options::Dict{Symbol,Any}
     # Per-backend iteration breakdown. Solver iteration structures are NOT
@@ -216,6 +228,8 @@ function BenchmarkResult(;
     peak_rss_delta_bytes::Int = 0,
     live_heap_delta_bytes::Int = 0,
     oom_margin_bytes::Int = 0,
+    gpu_allocations_bytes::Union{Nothing,Int} = nothing,
+    gpu_live_bytes::Union{Nothing,Int} = nothing,
     solver_options::Dict{Symbol,Any},
     iteration_counts::Dict{Symbol,Int} = Dict{Symbol,Int}(),
     convergence::Union{Nothing,ConvergenceCriterion} = nothing,
@@ -248,6 +262,8 @@ function BenchmarkResult(;
         peak_rss_delta_bytes,
         live_heap_delta_bytes,
         oom_margin_bytes,
+        gpu_allocations_bytes,
+        gpu_live_bytes,
         solver_options,
         iteration_counts,
         convergence,
