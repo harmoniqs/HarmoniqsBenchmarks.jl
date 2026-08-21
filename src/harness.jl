@@ -290,6 +290,21 @@ function benchmark_solve!(
 
     post = evaluate_post_solve(prob)
 
+    # DirectTrajOpt 0.10's solve! returns a SolveStats; older versions returned
+    # nothing (and fell through to the -1 sentinel below). Prefer the solver's
+    # own counts when available — they include barrier/interior-point
+    # iterations the post-solve evaluator cannot see. (isdefined guard first:
+    # the binding doesn't exist on pre-0.10 and `isa` would throw UndefVarError.)
+    stats =
+        if isdefined(DirectTrajOpt, :SolveStats) &&
+           metrics.result isa DirectTrajOpt.SolveStats
+            metrics.result
+        else
+            nothing
+        end
+    iterations = stats === nothing ? -1 : Int(stats.iterations)
+    solver_status = stats === nothing ? post.solver_status : Symbol(string(stats.status))
+
     return BenchmarkResult(
         package = "DirectTrajOpt",
         package_version = _get_package_version("DirectTrajOpt"),
@@ -301,10 +316,10 @@ function benchmark_solve!(
         n_constraints = dims.n_constraints,
         n_variables = dims.n_variables,
         wall_time_s = metrics.wall_time_s,
-        iterations = -1,  # solve! returns nothing; sentinel
+        iterations = iterations,  # from SolveStats when solve! returns it; -1 sentinel on pre-0.10
         objective_value = post.objective_value,
         constraint_violation = post.constraint_violation,
-        solver_status = post.solver_status,
+        solver_status = solver_status,
         solver = _solver_name(options),
         total_allocations_bytes = metrics.total_allocations_bytes,
         total_allocs_count = metrics.total_allocs_count,

@@ -316,6 +316,9 @@ using LinearAlgebra
         @test result.constraint_violation >= 0.0
         @test result.solver == "Ipopt"
         @test result.solver_status isa Symbol
+        # DirectTrajOpt 0.10+: solve! returns SolveStats, so iterations is the
+        # solver's own count (5 capped), not the pre-0.10 -1 sentinel.
+        @test result.iterations >= 0
 
         # Memory
         @test result.total_allocations_bytes >= 0
