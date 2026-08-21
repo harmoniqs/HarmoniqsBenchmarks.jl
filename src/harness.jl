@@ -293,9 +293,14 @@ function benchmark_solve!(
     # DirectTrajOpt 0.10's solve! returns a SolveStats; older versions returned
     # nothing (and fell through to the -1 sentinel below). Prefer the solver's
     # own counts when available — they include barrier/interior-point
-    # iterations the post-solve evaluator cannot see.
-    stats = metrics.result
-    stats isa DirectTrajOpt.SolveStats || (stats = nothing)
+    # iterations the post-solve evaluator cannot see. (isdefined guard first:
+    # the binding doesn't exist on pre-0.10 and `isa` would throw UndefVarError.)
+    stats = if isdefined(DirectTrajOpt, :SolveStats) &&
+               metrics.result isa DirectTrajOpt.SolveStats
+        metrics.result
+    else
+        nothing
+    end
     iterations = stats === nothing ? -1 : Int(stats.iterations)
     solver_status =
         stats === nothing ? post.solver_status : Symbol(string(stats.status))
