@@ -295,15 +295,15 @@ function benchmark_solve!(
     # own counts when available — they include barrier/interior-point
     # iterations the post-solve evaluator cannot see. (isdefined guard first:
     # the binding doesn't exist on pre-0.10 and `isa` would throw UndefVarError.)
-    stats = if isdefined(DirectTrajOpt, :SolveStats) &&
-               metrics.result isa DirectTrajOpt.SolveStats
-        metrics.result
-    else
-        nothing
-    end
+    stats =
+        if isdefined(DirectTrajOpt, :SolveStats) &&
+           metrics.result isa DirectTrajOpt.SolveStats
+            metrics.result
+        else
+            nothing
+        end
     iterations = stats === nothing ? -1 : Int(stats.iterations)
-    solver_status =
-        stats === nothing ? post.solver_status : Symbol(string(stats.status))
+    solver_status = stats === nothing ? post.solver_status : Symbol(string(stats.status))
 
     return BenchmarkResult(
         package = "DirectTrajOpt",
