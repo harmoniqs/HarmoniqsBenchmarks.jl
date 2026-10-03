@@ -81,6 +81,25 @@ for a runnable starting point.
 of `(problem, solver, converged, iterations, wall_time, criterion)` rows for
 reporting.
 
+## Provenance of recorded results (the Ipopt era)
+
+`DirectTrajOpt` flipped its **default** solver from Ipopt to MadNLP in v0.11.0
+(registered 2026-10-02). Every `BenchmarkResult` recorded before that date —
+including the family benchmark corpus in JLD2 archives — was produced under
+the Ipopt default: either implicitly (DTO `solve!` with no explicit options,
+pre-0.11) or explicitly (`IpoptOptions`, as all harness examples do). Treat
+those numbers as **Ipopt-era**: iteration counts, wall times, and convergence
+traces from Ipopt and MadNLP are not apples-to-apples, and `iteration_counts`
+already records per-backend keys for exactly this reason.
+
+When comparing a new MadNLP run against an Ipopt-era record, gate on the
+convergent quantities (final fidelity / objective, feasibility) rather than
+solver-path metrics, or re-measure both arms under the same backend. The
+per-result backend is always recorded: `BenchmarkResult.solver` (populated
+from the options type — `"Ipopt"`, `"MadNLP"`, or a custom options-struct
+name), so provenance is checkable per row — no re-measure of the historical
+corpus is implied or required by the flip.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
